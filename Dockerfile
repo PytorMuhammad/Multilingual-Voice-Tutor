@@ -12,13 +12,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first for better caching
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
-
-# Upgrade pip and install Python dependencies
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -28,8 +25,6 @@ COPY . .
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 
-# Expose port
 EXPOSE 8080
 
-# Start command
 CMD ["streamlit", "run", "multilingual_voice_tutor_enhanced.py", "--server.port", "8080", "--server.address", "0.0.0.0", "--server.headless", "true", "--server.enableCORS", "false", "--server.enableXsrfProtection", "false"]
