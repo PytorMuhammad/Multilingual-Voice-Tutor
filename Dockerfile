@@ -11,12 +11,13 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application files
 COPY . .
 
-# Run with Python launcher
-CMD ["python", "run_app.py"]
+# Make app.py executable
+RUN chmod +x app.py
+
+# Use app.py as entrypoint (Railway won't detect this as Streamlit)
+CMD ["python3", "app.py"]
