@@ -1,0 +1,8 @@
+[phases.build]
+cmds = ["pip install -r requirements.txt"]
+
+[phases.start]
+cmd = "python -m streamlit run multilingual_voice_tutor_enhanced.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"
+
+[variables]
+PYTHONUNBUFFERED = "1"
