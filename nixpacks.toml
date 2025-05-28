@@ -1,18 +1,16 @@
 [phases.setup]
-nixPkgs = ["portaudio", "ffmpeg", "libsndfile"]
+nixPkgs = ["python311", "python311Packages.pip", "portaudio", "ffmpeg", "libsndfile", "gcc", "pkg-config"]
 
 [phases.install]
 cmds = [
     "apt-get update",
-    "apt-get install -y portaudio19-dev libportaudio2 libsndfile1-dev ffmpeg",
-    "pip install -r requirements.txt"
+    "apt-get install -y portaudio19-dev libportaudio2 libsndfile1-dev ffmpeg gcc g++ pkg-config",
+    "python3.11 -m pip install --upgrade pip",
+    "python3.11 -m pip install -r requirements.txt"
 ]
 
-[phases.build]
-cmds = ["echo 'Build complete'"]
-
 [phases.start]
-cmd = "streamlit run multilingual_voice_tutor_enhanced.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"
+cmd = "python3.11 -m streamlit run multilingual_voice_tutor_enhanced.py --server.port $PORT --server.address 0.0.0.0 --server.headless true --server.enableCORS false --server.enableXsrfProtection false"
 
 [variables]
 PYTHONUNBUFFERED = "1"
