@@ -1266,18 +1266,8 @@ def encode_audio_to_base64(audio_path):
 
 
 def main():
-    
-    # Configure for Railway deployment
-    port = int(os.environ.get("PORT", 8501))
-    
-    # Page configuration
-    st.set_page_config(
-        page_title="Multilingual AI Voice Tutor",
-        page_icon="🎙️",
-        layout="wide"
-    )
     """Main application entry point"""
-    # Page configuration
+    # Page configuration - ONLY ONCE!
     st.set_page_config(
         page_title="Multilingual AI Voice Tutor",
         page_icon="🎙️",
