@@ -23,6 +23,7 @@ import httpx
 import requests
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, ClientSettings
 import av
+import webrtcvad
 
 # Audio processing
 from scipy.io import wavfile
@@ -52,17 +53,19 @@ OPENAI_API_URL = "https://api.openai.com/v1"
 # Default voice settings
 if 'voice_settings' not in st.session_state:
     st.session_state.voice_settings = {
-        "default": {
-            "stability": 0.6,
-            "similarity_boost": 0.7
-        },
         "cs": {  # Czech settings
-            "stability": 0.65,  # Higher stability for more consistent Czech
-            "similarity_boost": 0.6  # Lower similarity to reduce German influence
+            "voice_id": "pNInz6obpgDQGcFmaJgB",  # Adam voice for Czech
+            "stability": 0.75,  # Increased stability for more consistent Czech
+            "similarity_boost": 0.75,  # Increased similarity for better accent
+            "style": 0.0,  # Neutral style for better pronunciation
+            "use_speaker_boost": True  # Enable speaker boost for better clarity
         },
         "de": {  # German settings
-            "stability": 0.55,
-            "similarity_boost": 0.7
+            "voice_id": "pNInz6obpgDQGcFmaJgB",  # Adam voice for German
+            "stability": 0.75,  # Increased stability for more consistent German
+            "similarity_boost": 0.75,  # Increased similarity for better accent
+            "style": 0.0,  # Neutral style for better pronunciation
+            "use_speaker_boost": True  # Enable speaker boost for better clarity
         }
     }
 
@@ -115,6 +118,128 @@ if 'recorded_audio' not in st.session_state:
     st.session_state.recorded_audio = None
     st.session_state.last_audio_output = None
 
+# Voice model configuration
+VOICE_MODELS = {
+    "cs": {
+        "default": "pNInz6obpgDQGcFmaJgB",  # Adam voice
+        "alternatives": [
+            "21m00Tcm4TlvDq8ikWAM",  # Rachel voice
+            "AZnzlk1XvdvUeBnXmlld"   # Domi voice
+        ]
+    },
+    "de": {
+        "default": "pNInz6obpgDQGcFmaJgB",  # Adam voice
+        "alternatives": [
+            "21m00Tcm4TlvDq8ikWAM",  # Rachel voice
+            "AZnzlk1XvdvUeBnXmlld"   # Domi voice
+        ]
+    }
+}
+
+# Voice consistency settings
+VOICE_CONSISTENCY = {
+    "min_similarity": 0.75,
+    "max_stability_diff": 0.1,
+    "style_consistency": True
+}
+
+class VoiceManager:
+    """Manages voice settings and consistency across languages"""
+    
+    def __init__(self):
+        self.current_voice = None
+        self.voice_history = []
+        
+    def get_voice_settings(self, language_code):
+        """Get optimized voice settings for the specified language"""
+        if language_code not in VOICE_MODELS:
+            return None
+            
+        # Get base settings
+        settings = st.session_state.voice_settings.get(language_code, {}).copy()
+        
+        # Ensure voice consistency
+        if self.current_voice:
+            # Check if we need to adjust settings for consistency
+            if abs(settings.get("stability", 0) - self.current_voice.get("stability", 0)) > VOICE_CONSISTENCY["max_stability_diff"]:
+                settings["stability"] = self.current_voice["stability"]
+                
+            if settings.get("similarity_boost", 0) < VOICE_CONSISTENCY["min_similarity"]:
+                settings["similarity_boost"] = VOICE_CONSISTENCY["min_similarity"]
+        
+        # Update current voice
+        self.current_voice = settings
+        self.voice_history.append((language_code, settings))
+        
+        return settings
+    
+    def validate_voice_consistency(self, audio_data):
+        """Validate voice consistency in the audio"""
+        if not audio_data or len(self.voice_history) < 2:
+            return True
+            
+        # Get the last two voice settings
+        prev_lang, prev_settings = self.voice_history[-2]
+        curr_lang, curr_settings = self.voice_history[-1]
+        
+        # Check if languages are different
+        if prev_lang != curr_lang:
+            # Ensure voice settings are consistent
+            if abs(prev_settings.get("stability", 0) - curr_settings.get("stability", 0)) > VOICE_CONSISTENCY["max_stability_diff"]:
+                return False
+                
+            if abs(prev_settings.get("similarity_boost", 0) - curr_settings.get("similarity_boost", 0)) > 0.1:
+                return False
+        
+        return True
+
+class AudioQualityValidator:
+    """Validates audio quality before processing"""
+    
+    def __init__(self):
+        self.min_duration = 0.5  # seconds
+        self.max_duration = 30.0  # seconds
+        self.min_amplitude = 0.01
+        self.max_amplitude = 0.95
+        self.sample_rate = 16000
+        
+    def validate(self, audio_data):
+        """Validate audio quality"""
+        if audio_data is None:
+            return False, "No audio data"
+            
+        audio, sample_rate = audio_data
+        
+        # Check duration
+        duration = len(audio) / sample_rate
+        if duration < self.min_duration:
+            return False, f"Audio too short: {duration:.2f}s"
+        if duration > self.max_duration:
+            return False, f"Audio too long: {duration:.2f}s"
+            
+        # Check amplitude
+        max_amp = np.max(np.abs(audio))
+        if max_amp < self.min_amplitude:
+            return False, f"Audio too quiet: {max_amp:.2f}"
+        if max_amp > self.max_amplitude:
+            return False, f"Audio too loud: {max_amp:.2f}"
+            
+        # Check for silence
+        if self._is_silence(audio):
+            return False, "Audio is silence"
+            
+        return True, "Audio quality OK"
+    
+    def _is_silence(self, audio, threshold=0.01):
+        """Check if audio is silence"""
+        return np.max(np.abs(audio)) < threshold
+
+# Initialize managers
+if 'voice_manager' not in st.session_state:
+    st.session_state.voice_manager = VoiceManager()
+if 'audio_validator' not in st.session_state:
+    st.session_state.audio_validator = AudioQualityValidator()
+
 def check_system_dependencies():
     """Check and install system dependencies for audio processing"""
     try:
@@ -137,69 +262,144 @@ class AudioRecorder:
     def __init__(self):
         self.recording = False
         self.audio_data = []
-        self.sample_rate = 16000  # Whisper prefers 16kHz
+        self.sample_rate = 16000
+        self.channels = 1
+        self.chunk_size = 1024
+        self.vad = webrtcvad.Vad(3)  # Initialize VAD with aggressive mode
         
     def start_recording(self):
-        """Start recording audio"""
-        self.recording = True
-        self.audio_data = []
-        
-        def record_thread():
-            with sd.InputStream(samplerate=self.sample_rate, channels=1, callback=self._audio_callback):
-                while self.recording:
-                    time.sleep(0.1)
-        
-        self.thread = threading.Thread(target=record_thread)
-        self.thread.start()
-        return True
+        """Start recording audio with VAD"""
+        try:
+            self.recording = True
+            self.audio_data = []
+            
+            def record_thread():
+                try:
+                    with sd.InputStream(
+                        samplerate=self.sample_rate,
+                        channels=self.channels,
+                        callback=self._audio_callback,
+                        blocksize=self.chunk_size
+                    ) as stream:
+                        while self.recording:
+                            time.sleep(0.1)
+                except Exception as e:
+                    logger.error(f"Recording error: {str(e)}")
+                    self.recording = False
+            
+            self.thread = threading.Thread(target=record_thread)
+            self.thread.start()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to start recording: {str(e)}")
+            return False
     
     def _audio_callback(self, indata, frames, time, status):
-        """Callback for audio data"""
+        """Callback for audio data with VAD"""
         if status:
             logger.warning(f"Audio callback status: {status}")
-        self.audio_data.append(indata.copy())
+        try:
+            # Check for voice activity
+            if self._has_voice_activity(indata):
+                self.audio_data.append(indata.copy())
+        except Exception as e:
+            logger.error(f"Audio callback error: {str(e)}")
+    
+    def _has_voice_activity(self, audio_chunk):
+        """Check if audio chunk contains voice activity"""
+        try:
+            # Convert to 16-bit PCM
+            audio_int16 = (audio_chunk * 32767).astype(np.int16)
+            # Check if frame contains voice
+            return self.vad.is_speech(audio_int16.tobytes(), self.sample_rate)
+        except Exception as e:
+            logger.error(f"VAD error: {str(e)}")
+            return True  # Default to True on error
     
     def stop_recording(self):
-        """Stop recording and return audio data"""
+        """Stop recording and validate audio quality"""
         if not self.recording:
             return None
             
-        self.recording = False
-        self.thread.join()
-        
-        if not self.audio_data:
-            return None
+        try:
+            self.recording = False
+            self.thread.join(timeout=2.0)
             
-        # Combine all audio chunks
-        audio = np.concatenate(self.audio_data, axis=0)
-        
-        # Reset for next recording
-        self.audio_data = []
-        
-        return audio, self.sample_rate
-    
+            if not self.audio_data:
+                logger.warning("No audio data recorded")
+                return None
+                
+            # Combine all audio chunks
+            audio = np.concatenate(self.audio_data, axis=0)
+            
+            # Validate audio quality
+            is_valid, message = st.session_state.audio_validator.validate((audio, self.sample_rate))
+            if not is_valid:
+                logger.warning(f"Audio validation failed: {message}")
+                return None
+                
+            # Reset for next recording
+            self.audio_data = []
+            
+            return audio, self.sample_rate
+        except Exception as e:
+            logger.error(f"Error stopping recording: {str(e)}")
+            return None
+
     def save_audio(self, audio_data, filename="recorded_audio.wav"):
-        """Save audio data to file"""
+        """Save audio data to file with improved error handling"""
         if audio_data is None:
             return None
             
-        audio, sample_rate = audio_data
-        sf.write(filename, audio, sample_rate)
-        return filename
+        try:
+            audio, sample_rate = audio_data
+            
+            # Normalize audio
+            audio = audio / np.max(np.abs(audio))
+            
+            # Apply noise reduction
+            audio = nr.reduce_noise(y=audio, sr=sample_rate)
+            
+            # Save with high quality settings
+            sf.write(
+                filename,
+                audio,
+                sample_rate,
+                subtype='PCM_24'  # Higher quality
+            )
+            return filename
+        except Exception as e:
+            logger.error(f"Error saving audio: {str(e)}")
+            return None
 
     def convert_to_mp3(self, audio_data, output_filename="recorded_audio.mp3"):
-        """Convert recorded audio to MP3 format"""
+        """Convert recorded audio to MP3 format with improved quality"""
         if audio_data is None:
             return None
             
-        wav_file = self.save_audio(audio_data, "temp_recording.wav")
-        audio = AudioSegment.from_wav(wav_file)
-        audio.export(output_filename, format="mp3")
-        
-        # Remove temporary file
-        os.remove(wav_file)
-        
-        return output_filename
+        try:
+            # Save as high-quality WAV first
+            wav_file = self.save_audio(audio_data, "temp_recording.wav")
+            if not wav_file:
+                return None
+                
+            # Convert to MP3 with high quality settings
+            audio = AudioSegment.from_wav(wav_file)
+            audio = audio.normalize()  # Normalize volume
+            audio.export(
+                output_filename,
+                format="mp3",
+                bitrate="192k",  # Higher bitrate
+                parameters=["-q:a", "0"]  # Highest quality
+            )
+            
+            # Remove temporary file
+            os.remove(wav_file)
+            
+            return output_filename
+        except Exception as e:
+            logger.error(f"Error converting to MP3: {str(e)}")
+            return None
 
     def enhance_audio_quality(self, audio_data):
         """Enhance audio quality for better transcription, including noise reduction"""
@@ -849,8 +1049,16 @@ def generate_speech(text, language_code=None, voice_id=None):
         logger.error("Empty text provided to generate_speech")
         return None, 0
         
+    # Get optimized voice settings
+    voice_settings = st.session_state.voice_manager.get_voice_settings(language_code)
+    if not voice_settings:
+        logger.error(f"No voice settings for language: {language_code}")
+        return None, 0
+        
+    voice_id = voice_settings.get("voice_id", voice_id)
     if not voice_id:
-        voice_id = st.session_state.elevenlabs_voice_id
+        logger.error("No voice ID provided")
+        return None, 0
         
     api_key = st.session_state.elevenlabs_api_key
     if not api_key:
@@ -868,34 +1076,11 @@ def generate_speech(text, language_code=None, voice_id=None):
         "xi-api-key": api_key
     }
     
-    # Use faster model for lower latency
-    model_id = "eleven_monolingual_v1"  # Changed from multilingual to monolingual for speed
+    # Use monolingual model for better accent quality
+    model_id = "eleven_monolingual_v1"
     
-    # Optimized voice settings for lower latency
-    if language_code == "cs":  # Czech
-        voice_settings = {
-            "stability": 0.5,  # Reduced from 0.65
-            "similarity_boost": 0.5,  # Reduced from 0.6
-            "style": 0.3,  # Reduced from 0.4
-            "use_speaker_boost": False  # Disabled for speed
-        }
-    elif language_code == "de":  # German
-        voice_settings = {
-            "stability": 0.5,  # Reduced from 0.55
-            "similarity_boost": 0.5,  # Reduced from 0.7
-            "style": 0.3,  # Reduced from 0.5
-            "use_speaker_boost": False  # Disabled for speed
-        }
-    else:
-        voice_settings = {
-            "stability": 0.5,
-            "similarity_boost": 0.5,
-            "style": 0.3,
-            "use_speaker_boost": False
-        }
-    
-    # Simplified text optimization
-    optimized_text = text.strip()
+    # Optimize text for language-specific pronunciation
+    optimized_text = optimize_text_for_language(text, language_code)
     
     data = {
         "text": optimized_text,
@@ -916,7 +1101,7 @@ def generate_speech(text, language_code=None, voice_id=None):
                     f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
                     json=data,
                     headers=headers,
-                    timeout=15  # Reduced timeout
+                    timeout=15
                 )
                 
                 if response.status_code == 200:
@@ -951,18 +1136,17 @@ def generate_speech(text, language_code=None, voice_id=None):
         return None, time.time() - start_time
 
 def optimize_text_for_language(text, language_code):
-    """Optimize text for specific language pronunciation"""
-    # Simplified optimization for demo - in production, would use more sophisticated SSML
-    if language_code == "cs":
-        # Add pauses after punctuation for Czech
-        text = re.sub(r'([.!?])', r'\1...', text)
+    """Optimize text for specific language pronunciation with SSML"""
+    if not text or not language_code:
+        return text
         
-        # Slow down slightly for more accurate Czech pronunciation
-        text = f"{text}"
+    # Add SSML tags for better pronunciation
+    if language_code == "cs":
+        # Czech-specific optimizations
+        text = f'<speak><prosody rate="0.9"><lang xml:lang="cs-CZ">{text}</lang></prosody></speak>'
     elif language_code == "de":
-        # German optimization
-        # Add slight emphasis to compound words
-        text = re.sub(r'([A-ZÄÖÜa-zäöüß]{6,})', r' \1 ', text)
+        # German-specific optimizations
+        text = f'<speak><prosody rate="0.9"><lang xml:lang="de-DE">{text}</lang></prosody></speak>'
     
     return text
 
@@ -1263,8 +1447,6 @@ def encode_audio_to_base64(audio_path):
 # STREAMLIT UI - ENHANCED WITH LANGUAGE CONTROL OPTIONS
 # ----------------------------------------------------------------------------------
 
-
-
 def main():
     """Main application entry point"""
     # Page configuration - ONLY ONCE!
@@ -1509,7 +1691,7 @@ def main():
             if not keys_set:
                 st.warning("Please set both API keys in the sidebar first")
             else:
-                # Audio recorder
+                # Audio recorder with improved UI
                 st.write("Click to record your voice in Czech or German:")
                 
                 # Initialize recorder if needed
@@ -1517,55 +1699,65 @@ def main():
                     st.session_state.audio_recorder = AudioRecorder()
                     st.session_state.recording = False
                 
-                # Recording controls
+                # Recording controls with improved feedback
                 col_record1, col_record2 = st.columns(2)
                 
                 with col_record1:
                     if not st.session_state.recording:
-                        if st.button("Start Recording"):
-                            st.session_state.recording = True
-                            st.session_state.audio_recorder.start_recording()
-                            st.session_state.message_queue.put("Recording started...")
-                            st.experimental_rerun()
+                        if st.button("Start Recording", type="primary"):
+                            if st.session_state.audio_recorder.start_recording():
+                                st.session_state.recording = True
+                                st.session_state.message_queue.put("Recording started...")
+                                st.experimental_rerun()
+                            else:
+                                st.error("Failed to start recording. Please check your microphone settings.")
                     else:
                         if st.button("Stop Recording", type="primary"):
                             audio_data = st.session_state.audio_recorder.stop_recording()
                             st.session_state.recording = False
                             
                             if audio_data:
-                                # Save the recorded audio
+                                # Save the recorded audio with improved quality
                                 mp3_file = st.session_state.audio_recorder.convert_to_mp3(audio_data)
-                                st.session_state.recorded_audio = mp3_file
-                                st.session_state.message_queue.put(f"Audio saved to {mp3_file}")
+                                if mp3_file:
+                                    st.session_state.recorded_audio = mp3_file
+                                    st.session_state.message_queue.put(f"Audio saved to {mp3_file}")
+                                else:
+                                    st.error("Failed to save audio. Please try again.")
+                            else:
+                                st.error("No audio recorded. Please try again.")
                             
                             st.experimental_rerun()
                 
                 with col_record2:
                     if st.session_state.recording:
                         st.markdown("🔴 **Recording...**")
+                        st.markdown("Speak clearly into your microphone")
                 
-                # Display and process recorded audio
+                # Display and process recorded audio with improved feedback
                 if st.session_state.recorded_audio:
                     st.subheader("Recorded Audio")
                     audio_bytes = display_audio(st.session_state.recorded_audio)
                     
-                    process_button = st.button("Process Recording", type="primary")
-                    
-                    if process_button:
-                        with st.spinner("Processing voice input..."):
-                            # Process the voice input
-                            text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                process_voice_input(st.session_state.recorded_audio)
-                            )
-                            
-                            # Store for display in the output section
-                            if text:
-                                st.session_state.last_text_input = text
-                            st.session_state.last_audio_output = audio_path
-                            
-                            # Show latency metrics
-                            total_latency = stt_latency + llm_latency + tts_latency
-                            st.success(f"Voice processed in {total_latency:.2f} seconds")
+                    if audio_bytes:
+                        process_button = st.button("Process Recording", type="primary")
+                        
+                        if process_button:
+                            with st.spinner("Processing voice input..."):
+                                # Process the voice input
+                                text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
+                                    process_voice_input(st.session_state.recorded_audio)
+                                )
+                                
+                                if text:
+                                    st.session_state.last_text_input = text
+                                    st.session_state.last_audio_output = audio_path
+                                    
+                                    # Show latency metrics
+                                    total_latency = stt_latency + llm_latency + tts_latency
+                                    st.success(f"Voice processed in {total_latency:.2f} seconds")
+                                else:
+                                    st.error("Failed to process voice input. Please try again.")
     
     with col2:
         st.header("Output")
