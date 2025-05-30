@@ -19,6 +19,7 @@ import noisereduce as nr  # For noise reduction
 
 # Web interface and async handling
 import streamlit as st
+import streamlit.components.v1
 import httpx
 import requests
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, ClientSettings
@@ -1775,7 +1776,10 @@ def main():
             # Voice input
             # Voice input with improved browser compatibility
             st.subheader("Voice Input")
-
+            keys_set = (
+                st.session_state.elevenlabs_api_key and 
+                st.session_state.openai_api_key
+            )
             if not keys_set:
                 st.warning("Please set both API keys in the sidebar first")
             else:
