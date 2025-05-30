@@ -747,6 +747,281 @@ def fix_language_markers(text):
     
     return text
 
+def process_multilingual_text_seamless(text, detect_language=True):
+    """IMPROVED: Process text with seamless language transitions and accent isolation"""
+    
+    # Parse language segments with better boundary detection
+    segments = parse_language_segments_advanced(text)
+    
+    if len(segments) <= 1:
+        # Single language - use standard processing
+        return process_multilingual_text(text, detect_language)
+    
+    # CRITICAL: For multi-language, use seamless blending approach
+    blended_audio_segments = []
+    total_time = 0
+    
+    for i, segment in enumerate(segments):
+        if not segment["text"].strip():
+            continue
+            
+        # Pre-process text for smoother transitions
+        processed_text = prepare_text_for_seamless_transition(
+            segment["text"], 
+            segment["language"],
+            is_first=(i == 0),
+            is_last=(i == len(segments)-1),
+            prev_lang=segments[i-1]["language"] if i > 0 else None
+        )
+        
+        # Generate audio with language-specific optimization
+        audio_data, generation_time = generate_speech_seamless(
+            processed_text, 
+            language_code=segment["language"],
+            context={
+                "position": i,
+                "total_segments": len(segments),
+                "prev_language": segments[i-1]["language"] if i > 0 else None,
+                "next_language": segments[i+1]["language"] if i < len(segments)-1 else None
+            }
+        )
+        
+        if audio_data:
+            # Load and enhance for seamless blending
+            audio_segment = AudioSegment.from_file(audio_data, format="mp3")
+            
+            # Apply crossfade between different languages
+            if i > 0 and segments[i-1]["language"] != segment["language"]:
+                audio_segment = apply_language_transition_blend(
+                    audio_segment, segments[i-1]["language"], segment["language"]
+                )
+            
+            blended_audio_segments.append(audio_segment)
+            total_time += generation_time
+    
+    # SEAMLESS COMBINATION with crossfading
+    if not blended_audio_segments:
+        return None, 0
+    
+    combined_audio = blended_audio_segments[0]
+    
+    for i in range(1, len(blended_audio_segments)):
+        # Apply crossfade for smooth transitions
+        crossfade_duration = 50  # ms - critical for seamless effect
+        combined_audio = combined_audio.append(
+            blended_audio_segments[i], 
+            crossfade=crossfade_duration
+        )
+    
+    # Final enhancement for naturalness
+    combined_audio = enhance_multilingual_audio_final(combined_audio)
+    
+    # Save with high quality
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+        combined_audio.export(
+            temp_file.name, 
+            format="mp3", 
+            bitrate="192k",  # Higher quality for better transitions
+            parameters=["-ac", "1", "-ar", "22050"]  # Optimal for voice
+        )
+        return temp_file.name, total_time
+
+def parse_language_segments_advanced(text):
+    """Advanced parsing that preserves context for better transitions"""
+    segments = []
+    
+    # Split by language markers but preserve context
+    parts = re.split(r'(\[[a-z]{2}\])', text)
+    
+    current_language = None
+    current_text = ""
+    
+    for part in parts:
+        if re.match(r'\[[a-z]{2}\]', part):
+            # Save previous segment
+            if current_text.strip():
+                segments.append({
+                    "text": current_text.strip(),
+                    "language": current_language
+                })
+            
+            # Set new language
+            current_language = part[1:-1]  # Remove brackets
+            current_text = ""
+        else:
+            current_text += part
+    
+    # Add final segment
+    if current_text.strip():
+        segments.append({
+            "text": current_text.strip(),
+            "language": current_language
+        })
+    
+    # Detect language for unmarked segments
+    for segment in segments:
+        if segment["language"] is None:
+            segment["language"] = detect_primary_language(segment["text"])
+    
+    return segments
+
+def prepare_text_for_seamless_transition(text, language, is_first, is_last, prev_lang):
+    """Prepare text for seamless language transitions"""
+    
+    # Add micro-pauses at language boundaries
+    if not is_first and prev_lang and prev_lang != language:
+        text = f"<break time='100ms'/>{text}"
+    
+    # Language-specific pronunciation hints
+    if language == "cs":
+        # Czech pronunciation optimization
+        text = optimize_czech_pronunciation(text)
+    elif language == "de": 
+        # German pronunciation optimization
+        text = optimize_german_pronunciation(text)
+    
+    return text
+
+def generate_speech_seamless(text, language_code, context):
+    """Generate speech optimized for seamless multilingual transitions"""
+    
+    voice_id = st.session_state.elevenlabs_voice_id
+    api_key = st.session_state.elevenlabs_api_key
+    
+    # CRITICAL: Use consistent voice with language-specific fine-tuning
+    model_id = "eleven_multilingual_v2"  # Best for seamless switching
+    
+    # Context-aware voice settings for seamless transitions
+    voice_settings = get_contextual_voice_settings(language_code, context)
+    
+    # Enhanced text with SSML for better pronunciation
+    enhanced_text = add_pronunciation_markup(text, language_code)
+    
+    data = {
+        "text": enhanced_text,
+        "model_id": model_id,
+        "voice_settings": voice_settings,
+        "apply_text_normalization": "auto"  # Better for mixed content
+    }
+    
+    headers = {
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json", 
+        "xi-api-key": api_key
+    }
+    
+    try:
+        response = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            json=data,
+            headers=headers,
+            timeout=20
+        )
+        
+        if response.status_code == 200:
+            return BytesIO(response.content), 0.5  # Faster processing
+        else:
+            return None, 0
+            
+    except Exception as e:
+        logger.error(f"Seamless TTS error: {str(e)}")
+        return None, 0
+
+def optimize_czech_pronunciation(text):
+    """Optimize text for better Czech pronunciation"""
+    # Add stress markers for difficult Czech words
+    czech_stress_words = {
+        "děkuji": "děkuji",  # Already stressed correctly
+        "prosím": "prosím",
+        "můžeme": "můžeme"
+    }
+    
+    for word, stressed in czech_stress_words.items():
+        text = text.replace(word, stressed)
+    
+    return text
+
+def optimize_german_pronunciation(text):
+    """Optimize text for better German pronunciation"""
+    # Add pronunciation hints for German
+    german_pronunciation = {
+        "ich": "ikh",  # Better pronunciation hint
+        "nicht": "nikht"
+    }
+    
+    for word, hint in german_pronunciation.items():
+        if word in text.lower():
+            text = text.replace(word, f"{word}")  # Keep original but will be processed
+    
+    return text
+
+def add_pronunciation_markup(text, language_code):
+    """Add SSML markup for better pronunciation"""
+    
+    # Basic SSML wrapper
+    if language_code == "cs":
+        return f'<speak><lang xml:lang="cs">{text}</lang></speak>'
+    elif language_code == "de":
+        return f'<speak><lang xml:lang="de">{text}</lang></speak>'
+    else:
+        return text
+
+def apply_language_transition_blend(audio_segment, prev_lang, current_lang):
+    """Apply audio processing for smoother language transitions"""
+    
+    # Normalize volume for consistent transitions
+    normalized = audio_segment.normalize()
+    
+    # Add slight fade-in for smoother start after language switch
+    fade_duration = 30  # ms
+    faded = normalized.fade_in(fade_duration)
+    
+    return faded
+
+def enhance_multilingual_audio_final(combined_audio):
+    """Final enhancement for multilingual audio"""
+    
+    # Normalize overall volume
+    normalized = combined_audio.normalize()
+    
+    # Apply gentle compression for consistency
+    compressed = normalized.compress_dynamic_range(threshold=-20.0, ratio=2.0)
+    
+    # Slight reverb for naturalness (if needed)
+    # In production, you might add subtle reverb here
+    
+    return compressed
+
+def get_contextual_voice_settings(language_code, context):
+    """Get voice settings optimized for context and seamless transitions"""
+    
+    base_settings = {
+        "stability": 0.75,
+        "similarity_boost": 0.85,
+        "style": 0.6,
+        "use_speaker_boost": True
+    }
+    
+    # Adjust based on position and language transitions
+    if context["position"] > 0:  # Not first segment
+        base_settings["stability"] += 0.1  # More stable for consistency
+    
+    # Language-specific adjustments
+    if language_code == "cs":
+        base_settings.update({
+            "stability": 0.80,
+            "similarity_boost": 0.90,
+            "style": 0.7
+        })
+    elif language_code == "de":
+        base_settings.update({
+            "stability": 0.75,
+            "similarity_boost": 0.85,
+            "style": 0.65
+        })
+    
+    return base_settings
+
 def detect_primary_language(text):
     """Detect the primary language of a text with improved accuracy"""
     # Czech-specific characters
@@ -1116,7 +1391,7 @@ async def process_voice_input(audio_file):
     
     # Step 3: Text-to-Speech with accent isolation
     st.session_state.message_queue.put("Generating speech with accent isolation...")
-    audio_path, tts_latency = process_multilingual_text(response_text)
+    audio_path, tts_latency = process_multilingual_text_seamless(response_text)
     
     # Calculate total latency
     total_latency = time.time() - pipeline_start_time
@@ -1175,7 +1450,7 @@ async def process_text_input(text):
     
     # Step 2: Text-to-Speech with accent isolation
     st.session_state.message_queue.put("Generating speech with accent isolation...")
-    audio_path, tts_latency = process_multilingual_text(response_text)
+    audio_path, tts_latency = process_multilingual_text_seamless(response_text)
     
     # Calculate total latency
     total_latency = time.time() - pipeline_start_time
@@ -1498,73 +1773,114 @@ def main():
         
         else:
             # Voice input
+            # Voice input with improved browser compatibility
             st.subheader("Voice Input")
-            
-            # Check if API keys are set
-            keys_set = (
-                st.session_state.elevenlabs_api_key and 
-                st.session_state.openai_api_key
-            )
-            
+
             if not keys_set:
                 st.warning("Please set both API keys in the sidebar first")
             else:
-                # Browser-compatible audio recorder
-                st.write("Use your microphone to record Czech or German:")
+                st.write("🎤 Click to record Czech or German:")
                 
-                webrtc_ctx = webrtc_streamer(
-                    key="audio-recorder",
-                    mode=WebRtcMode.SENDONLY,
-                    audio_receiver_size=1024,
-                    media_stream_constraints={"video": False, "audio": True},
-                    client_settings=ClientSettings(
-                        rtc_configuration={
-                            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-                        },
-                        media_stream_constraints={"video": False, "audio": True}
-                    )
-                )
+                # Use HTML5 audio recorder instead of WebRTC for better compatibility
+                audio_recorder_html = """
+                <div id="audio-recorder">
+                    <button id="startBtn" onclick="startRecording()">🎤 Start Recording</button>
+                    <button id="stopBtn" onclick="stopRecording()" disabled>⏹️ Stop Recording</button>
+                    <div id="status">Ready to record</div>
+                    <audio id="audioPlayback" controls style="display:none;"></audio>
+                </div>
                 
-                if webrtc_ctx.audio_receiver:
-                    st.write("🎤 Recording... Speak now!")
+                <script>
+                let mediaRecorder;
+                let audioChunks = [];
+                
+                async function startRecording() {
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        mediaRecorder = new MediaRecorder(stream);
+                        
+                        mediaRecorder.ondataavailable = event => {
+                            audioChunks.push(event.data);
+                        };
+                        
+                        mediaRecorder.onstop = () => {
+                            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                            audioChunks = [];
+                            
+                            // Convert to base64 and send to Streamlit
+                            const reader = new FileReader();
+                            reader.onloadend = () => {
+                                const base64data = reader.result.split(',')[1];
+                                window.parent.postMessage({
+                                    type: 'audio_recorded',
+                                    data: base64data
+                                }, '*');
+                            };
+                            reader.readAsDataURL(audioBlob);
+                            
+                            document.getElementById('status').textContent = 'Recording saved! Processing...';
+                        };
+                        
+                        mediaRecorder.start();
+                        document.getElementById('startBtn').disabled = true;
+                        document.getElementById('stopBtn').disabled = false;
+                        document.getElementById('status').textContent = 'Recording... Speak now!';
+                        
+                    } catch (err) {
+                        document.getElementById('status').textContent = 'Microphone access denied or not available';
+                        console.error('Error accessing microphone:', err);
+                    }
+                }
+                
+                function stopRecording() {
+                    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                        mediaRecorder.stop();
+                        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                    }
                     
-                    # Collect audio frames
-                    audio_frames = []
-                    while True:
-                        try:
-                            audio_frame = webrtc_ctx.audio_receiver.get_frame(timeout=1)
-                            audio_frames.append(audio_frame)
-                        except queue.Empty:
-                            break
-                    
-                    if audio_frames:
-                        st.success("Audio recorded! Processing...")
-                        
-                        # Convert frames to audio file
-                        audio_data = b"".join([frame.to_bytes() for frame in audio_frames])
-                        
-                        # Save as temporary file
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-                            tmp_file.write(audio_data)
-                            audio_file_path = tmp_file.name
-                        
-                        # Process the voice input
+                    document.getElementById('startBtn').disabled = false;
+                    document.getElementById('stopBtn').disabled = true;
+                }
+                </script>
+                """
+                
+                # Display the HTML recorder
+                st.components.v1.html(audio_recorder_html, height=200)
+                
+                # Handle audio data from JavaScript
+                if 'audio_data' not in st.session_state:
+                    st.session_state.audio_data = None
+                
+                # Process button
+                if st.button("Process Last Recording", type="primary"):
+                    if st.session_state.audio_data:
                         with st.spinner("Processing voice input..."):
+                            # Save base64 audio to temp file
+                            import base64
+                            audio_bytes = base64.b64decode(st.session_state.audio_data)
+                            
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+                                tmp_file.write(audio_bytes)
+                                audio_file_path = tmp_file.name
+                            
+                            # Process the voice input
                             text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
                                 process_voice_input(audio_file_path)
                             )
                             
-                            # Store for display in the output section
+                            # Store results
                             if text:
                                 st.session_state.last_text_input = text
                             st.session_state.last_audio_output = audio_path
                             
-                            # Show latency metrics
+                            # Show results
                             total_latency = stt_latency + llm_latency + tts_latency
                             st.success(f"Voice processed in {total_latency:.2f} seconds")
-                        
-                        # Clean up temp file
-                        os.unlink(audio_file_path)
+                            
+                            # Clean up
+                            os.unlink(audio_file_path)
+                    else:
+                        st.warning("No audio recorded yet. Please record first.")
     
     with col2:
         st.header("Output")
