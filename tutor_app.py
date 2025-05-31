@@ -133,20 +133,12 @@ def check_system_dependencies():
     return True
 
 # Add these enhanced audio capture functions after the import statements
-
+# Replace the existing capture_enhanced_audio function with this simplified version
 def capture_enhanced_audio():
-    """Capture audio with 500% amplification for better pronunciation detection"""
-    if 'audio_recorder' not in st.session_state:
-        st.session_state.audio_recorder = AudioRecorder()
-    
+    """Simplified audio capture that works with the frame-based system"""
     try:
-        # Use enhanced recording with higher sensitivity
-        audio_data = st.session_state.audio_recorder.stop_recording()
-        
-        if audio_data:
-            # Apply 500% amplification immediately
-            amplified_audio = amplify_audio_500_percent(audio_data)
-            return amplified_audio
+        if st.session_state.audio_frames and len(st.session_state.audio_frames) > 10:
+            return process_audio_frames(st.session_state.audio_frames)
         return None
     except Exception as e:
         logger.error(f"Enhanced audio capture error: {str(e)}")
@@ -231,6 +223,131 @@ def enhanced_recording_interface():
             time.sleep(0.5)
             st.empty()
 
+def process_audio_frames(audio_frames):
+    """Process captured audio frames into usable audio data with 500% amplification"""
+    try:
+        if not audio_frames or len(audio_frames) < 10:
+            logger.error("Insufficient audio frames captured")
+            return None
+        
+        # Convert frames to audio data
+        sample_rate = 16000
+        audio_data = []
+        
+        for frame in audio_frames:
+            # Convert frame to numpy array
+            sound = frame.to_ndarray()
+            if sound.size > 0:
+                audio_data.append(sound)
+        
+        if not audio_data:
+            logger.error("No valid audio data in frames")
+            return None
+        
+        # Combine all audio data
+        combined_audio = np.concatenate(audio_data, axis=0)
+        
+        # Apply 500% amplification immediately
+        amplified_audio = combined_audio * 5.0
+        
+        # Prevent clipping while maintaining clarity
+        max_val = np.max(np.abs(amplified_audio))
+        if max_val > 0.95:
+            amplified_audio = amplified_audio * (0.95 / max_val)
+        
+        # Apply noise reduction and enhancement
+        try:
+            # Remove noise
+            enhanced_audio = nr.reduce_noise(y=amplified_audio.flatten(), sr=sample_rate)
+            
+            # Apply high-pass filter for clarity
+            from scipy import signal
+            nyquist = sample_rate / 2
+            low_cutoff = 80 / nyquist
+            b, a = signal.butter(2, low_cutoff, btype='high')
+            filtered_audio = signal.filtfilt(b, a, enhanced_audio)
+            
+            return (filtered_audio.reshape(-1, 1), sample_rate)
+            
+        except Exception as e:
+            logger.warning(f"Advanced processing failed, using basic amplification: {str(e)}")
+            return (amplified_audio, sample_rate)
+        
+    except Exception as e:
+        logger.error(f"Audio frame processing error: {str(e)}")
+        return None
+
+def display_audio_preview():
+    """Display audio preview with enhanced playback"""
+    try:
+        if not st.session_state.recorded_audio_data:
+            st.error("No audio data to preview")
+            return
+        
+        # Save audio for preview
+        audio, sample_rate = st.session_state.recorded_audio_data
+        
+        # Create temporary file for preview
+        temp_path = tempfile.mktemp(suffix=".wav")
+        sf.write(temp_path, audio, sample_rate)
+        
+        # Display audio player
+        with open(temp_path, "rb") as audio_file:
+            audio_bytes = audio_file.read()
+            st.audio(audio_bytes, format="audio/wav")
+            st.success("🔊 **Audio Preview** - You can hear your enhanced recording above")
+        
+        # Clean up
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+            
+    except Exception as e:
+        st.error(f"Preview error: {str(e)}")
+
+def process_recorded_voice():
+    """Process the recorded voice with enhanced pipeline"""
+    try:
+        if not st.session_state.recorded_audio_data:
+            st.error("No audio data to process")
+            return
+        
+        # Save audio to temporary file
+        audio, sample_rate = st.session_state.recorded_audio_data
+        temp_path = tempfile.mktemp(suffix=".wav")
+        sf.write(temp_path, audio, sample_rate)
+        
+        # Process with enhanced pipeline
+        text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
+            process_voice_input_pronunciation_enhanced(temp_path)
+        )
+        
+        # Store results
+        if text:
+            st.session_state.last_text_input = text
+        if audio_path:
+            st.session_state.last_audio_output = audio_path
+        
+        # Show results
+        total_latency = stt_latency + llm_latency + tts_latency
+        st.success(f"✅ **Voice Processing Complete!** ({total_latency:.2f}s)")
+        
+        # Reset recording state
+        st.session_state.recording_state = 'idle'
+        st.session_state.recorded_audio_data = None
+        st.session_state.audio_frames = []
+        
+        # Clean up
+        try:
+            os.unlink(temp_path)
+        except:
+            pass
+            
+    except Exception as e:
+        st.error(f"Processing error: {str(e)}")
+        logger.error(f"Voice processing error: {str(e)}")
+        
 def process_pronunciation_enhanced_audio():
     """Process recorded audio with pronunciation focus"""
     try:
@@ -2392,9 +2509,10 @@ def main():
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
         # Replace the entire voice input section with this enhanced version
+        # Replace the entire voice input section in main() function (around line 2900)
         else:
-            # Voice input - ENHANCED PRONUNCIATION-BASED RECORDING
-            st.subheader("🎤 Advanced Voice Input")
+            # Voice input - FIXED AND WORKING VERSION
+            st.subheader("🎤 Enhanced Voice Input")
             
             # Check if API keys are set
             keys_set = (
@@ -2406,69 +2524,120 @@ def main():
                 st.warning("Please set both API keys in the sidebar first")
             else:
                 # Initialize session state for recording
-                if 'is_recording' not in st.session_state:
-                    st.session_state.is_recording = False
+                if 'recording_state' not in st.session_state:
+                    st.session_state.recording_state = 'idle'  # idle, recording, recorded
                 if 'recorded_audio_data' not in st.session_state:
                     st.session_state.recorded_audio_data = None
-                if 'audio_preview_path' not in st.session_state:
-                    st.session_state.audio_preview_path = None
+                if 'audio_frames' not in st.session_state:
+                    st.session_state.audio_frames = []
                 
-                st.write("🎯 **Professional Voice Recording** - Pronunciation Enhanced")
+                st.write("🎯 **Professional Voice Recording** - Enhanced for Czech/German")
                 
                 # Enhanced Recording Controls with Icons
                 col_rec1, col_rec2, col_rec3 = st.columns([1, 1, 1])
                 
                 with col_rec1:
-                    # Toggle Recording Button with Icon
-                    if not st.session_state.is_recording:
-                        if st.button("🔴 **START RECORDING**", type="primary", use_container_width=True):
-                            st.session_state.is_recording = True
-                            st.session_state.recorded_audio_data = None
+                    # Single Toggle Recording Button
+                    if st.session_state.recording_state == 'idle':
+                        if st.button("🔴 **START RECORDING**", type="primary", use_container_width=True, key="start_rec"):
+                            st.session_state.recording_state = 'recording'
+                            st.session_state.audio_frames = []
                             st.rerun()
-                    else:
-                        if st.button("⏹️ **STOP RECORDING**", type="secondary", use_container_width=True):
-                            st.session_state.is_recording = False
-                            # Capture audio here
-                            st.session_state.recorded_audio_data = capture_enhanced_audio()
+                    elif st.session_state.recording_state == 'recording':
+                        if st.button("⏹️ **STOP RECORDING**", type="secondary", use_container_width=True, key="stop_rec"):
+                            st.session_state.recording_state = 'recorded'
+                            st.rerun()
+                    else:  # recorded
+                        if st.button("🔄 **NEW RECORDING**", type="primary", use_container_width=True, key="new_rec"):
+                            st.session_state.recording_state = 'idle'
+                            st.session_state.recorded_audio_data = None
+                            st.session_state.audio_frames = []
                             st.rerun()
                 
                 with col_rec2:
-                    # Preview Button (becomes bold when audio is available)
-                    if st.session_state.recorded_audio_data:
-                        if st.button("🔊 **PREVIEW AUDIO**", type="primary", use_container_width=True):
-                            preview_audio_enhanced(st.session_state.recorded_audio_data)
+                    # Preview Button
+                    if st.session_state.recording_state == 'recorded' and st.session_state.recorded_audio_data:
+                        if st.button("🔊 **PREVIEW AUDIO**", type="primary", use_container_width=True, key="preview_audio"):
+                            display_audio_preview()
                     else:
-                        st.button("🔇 Preview Audio", disabled=True, use_container_width=True)
+                        st.button("🔇 Preview Audio", disabled=True, use_container_width=True, key="preview_disabled")
                 
                 with col_rec3:
                     # Process Button
-                    if st.session_state.recorded_audio_data:
-                        if st.button("⚡ **PROCESS VOICE**", type="primary", use_container_width=True):
-                            with st.spinner("🔄 Processing pronunciation-enhanced voice..."):
-                                process_pronunciation_enhanced_audio()
+                    if st.session_state.recording_state == 'recorded' and st.session_state.recorded_audio_data:
+                        if st.button("⚡ **PROCESS VOICE**", type="primary", use_container_width=True, key="process_voice"):
+                            with st.spinner("🔄 Processing enhanced voice..."):
+                                process_recorded_voice()
                     else:
-                        st.button("⏳ Process Voice", disabled=True, use_container_width=True)
+                        st.button("⏳ Process Voice", disabled=True, use_container_width=True, key="process_disabled")
                 
-                # Recording Status Display
-                if st.session_state.is_recording:
+                # Recording Status and Interface
+                if st.session_state.recording_state == 'recording':
                     st.error("🔴 **RECORDING ACTIVE** - Speak clearly in Czech or German!")
                     st.info("💡 **Tip**: Speak slowly and clearly for better pronunciation detection")
                     
-                    # Real-time audio capture using enhanced method
-                    enhanced_recording_interface()
+                    # WORKING WebRTC Recording Interface
+                    webrtc_ctx = webrtc_streamer(
+                        key="enhanced-voice-recorder",
+                        mode=WebRtcMode.SENDONLY,
+                        audio_receiver_size=1024,
+                        client_settings=ClientSettings(
+                            rtc_configuration={
+                                "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+                            },
+                            media_stream_constraints={
+                                "video": False,
+                                "audio": {
+                                    "echoCancellation": True,
+                                    "noiseSuppression": True,
+                                    "autoGainControl": True,
+                                    "sampleRate": 16000
+                                }
+                            }
+                        )
+                    )
+                    
+                    # Collect audio frames
+                    if webrtc_ctx.audio_receiver:
+                        try:
+                            while True:
+                                audio_frame = webrtc_ctx.audio_receiver.get_frame(timeout=0.1)
+                                st.session_state.audio_frames.append(audio_frame)
+                        except queue.Empty:
+                            pass
+                        
+                        # Show frame count
+                        if len(st.session_state.audio_frames) > 0:
+                            st.success(f"📡 Captured {len(st.session_state.audio_frames)} audio frames")
                 
-                # Audio file upload as alternative
+                elif st.session_state.recording_state == 'recorded':
+                    if st.session_state.recorded_audio_data:
+                        st.success("✅ **Audio recorded successfully!** Ready for processing.")
+                    else:
+                        # Process frames into audio data
+                        if len(st.session_state.audio_frames) > 10:
+                            st.session_state.recorded_audio_data = process_audio_frames(st.session_state.audio_frames)
+                            if st.session_state.recorded_audio_data:
+                                st.success("✅ **Audio processed and ready!**")
+                            else:
+                                st.error("❌ Failed to process audio frames")
+                                st.session_state.recording_state = 'idle'
+                        else:
+                            st.error("❌ No audio captured. Please try recording again.")
+                            st.session_state.recording_state = 'idle'
+                
+                # Alternative: File upload
                 st.markdown("---")
                 st.write("📁 **Alternative: Upload Audio File**")
                 uploaded_audio = st.file_uploader(
-                    "Upload audio file for pronunciation analysis", 
+                    "Upload audio file for enhanced processing", 
                     type=['wav', 'mp3', 'ogg', 'm4a'],
-                    help="Upload clear audio for better Czech/German pronunciation detection"
+                    help="Upload clear audio for better Czech/German pronunciation detection",
+                    key="upload_audio"
                 )
                 
                 if uploaded_audio is not None:
-                    st.session_state.recorded_audio_data = uploaded_audio
-                    if st.button("🎯 **PROCESS UPLOADED AUDIO**", type="primary"):
+                    if st.button("🎯 **PROCESS UPLOADED AUDIO**", type="primary", key="process_upload"):
                         with st.spinner("🔄 Processing uploaded audio..."):
                             process_uploaded_audio_enhanced(uploaded_audio)
     with col2:
