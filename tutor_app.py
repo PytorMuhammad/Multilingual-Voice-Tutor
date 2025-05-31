@@ -684,29 +684,27 @@ def add_language_markers(text):
     return result.strip()
 
 def preserve_language_markers(input_text, response_text):
-    """FIXED: Respect user's input language markers over distribution settings"""
+    """ENHANCED: Handle auto language detection mode"""
     
     # Check if response already has markers
     if re.search(r'\[([a-z]{2})\]', response_text):
         return fix_language_markers(response_text)
     
-    # Extract language markers from input
+    response_language = st.session_state.response_language
+    
+    # NEW: Auto mode - detect from input and respond accordingly
+    if response_language == "auto":
+        detected_distribution = auto_detect_language_distribution(input_text)
+        return apply_auto_distribution(response_text, detected_distribution)
+    
+    # Existing logic for other modes...
     input_markers = re.findall(r'\[([a-z]{2})\]', input_text)
     
-    # CRITICAL FIX: If user provided specific language tags, respect them
     if input_markers:
-        # User specified languages - use SAME languages in response
-        dominant_input_language = input_markers[0]  # Use first language as primary
-        
-        # If only one language in input, respond in SAME language
+        dominant_input_language = input_markers[0]
         if len(set(input_markers)) == 1:
             return f"[{dominant_input_language}] {response_text}"
-        
-        # If multiple languages in input, use those same languages
         return add_language_markers_from_input(response_text, input_markers)
-    
-    # Only use distribution settings when NO language markers provided
-    response_language = st.session_state.response_language
     
     if response_language == "both":
         return apply_distribution_settings(response_text)
@@ -714,6 +712,26 @@ def preserve_language_markers(input_text, response_text):
         return f"[{response_language}] {response_text}"
     
     return add_language_markers(response_text)
+
+def apply_auto_distribution(text, distribution):
+    """Apply auto-detected language distribution"""
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    result = ""
+    
+    cs_percent = distribution["cs"]
+    de_percent = distribution["de"]
+    
+    total_sentences = len(sentences)
+    cs_sentences = int(total_sentences * (cs_percent / 100))
+    
+    for i, sentence in enumerate(sentences):
+        if sentence.strip():
+            if i < cs_sentences:
+                result += f"[cs] {sentence} "
+            else:
+                result += f"[de] {sentence} "
+    
+    return result.strip()
 
 def add_language_markers_from_input(text, input_languages):
     """Add markers based on input languages, not distribution"""
@@ -730,6 +748,69 @@ def add_language_markers_from_input(text, input_languages):
             result += f"[{input_languages[lang_idx]}] {sentence} "
     
     return result.strip()
+
+def auto_detect_language_distribution(input_text):
+    """Auto-detect language distribution from user input"""
+    
+    # Remove any existing language markers for clean detection
+    clean_text = re.sub(r'\[[a-z]{2}\]', '', input_text).strip()
+    
+    # Split into words for analysis
+    words = re.findall(r'\b\w+\b', clean_text.lower())
+    
+    if not words:
+        return {"cs": 50, "de": 50}  # Default if no words
+    
+    # Czech indicators
+    czech_chars = set("áčďéěíňóřšťúůýž")
+    czech_words = {
+        "jsem", "jsi", "je", "jsou", "ahoj", "dobrý", "dobře", "ano", "ne",
+        "já", "ty", "on", "ona", "prosím", "děkuji", "jak", "co", "kde", "kdy"
+    }
+    
+    # German indicators  
+    german_chars = set("äöüß")
+    german_words = {
+        "ich", "du", "er", "sie", "ist", "bin", "habe", "haben", "gut", "ja", "nein",
+        "der", "die", "das", "ein", "eine", "und", "wie", "was", "wo", "wann"
+    }
+    
+    # Count evidence
+    czech_evidence = 0
+    german_evidence = 0
+    
+    # Character-based evidence
+    for char in clean_text.lower():
+        if char in czech_chars:
+            czech_evidence += 2
+        elif char in german_chars:
+            german_evidence += 2
+    
+    # Word-based evidence (stronger weight)
+    for word in words:
+        if word in czech_words:
+            czech_evidence += 3
+        elif word in german_words:
+            german_evidence += 3
+    
+    # Calculate percentages
+    total_evidence = czech_evidence + german_evidence
+    
+    if total_evidence == 0:
+        return {"cs": 50, "de": 50}  # Default if unclear
+    
+    cs_percent = int((czech_evidence / total_evidence) * 100)
+    de_percent = 100 - cs_percent
+    
+    # Ensure minimum 20% for each language to maintain bilingual nature
+    if cs_percent < 20:
+        cs_percent = 20
+        de_percent = 80
+    elif de_percent < 20:
+        de_percent = 20
+        cs_percent = 80
+    
+    return {"cs": cs_percent, "de": de_percent}
 
 def apply_distribution_settings(text):
     """Only apply distribution when no input language specified"""
@@ -1371,65 +1452,99 @@ def normalize_speech_speed(audio_segment, language_code):
 # END-TO-END PIPELINE - ENHANCED FOR LATENCY OPTIMIZATION
 # ----------------------------------------------------------------------------------
 
-async def process_voice_input(audio_file):
-    """FIXED: Process voice input with better error handling and timeouts"""
+async def process_voice_input_enhanced(audio_file):
+    """Enhanced voice processing with OpenAI API and auto language detection"""
     pipeline_start_time = time.time()
     
     try:
-        # Step 1: Speech-to-Text with timeout protection
-        st.session_state.message_queue.put("Starting speech recognition...")
+        # Step 1: Enhanced Audio Preprocessing
+        st.session_state.message_queue.put("🎧 Cleaning and enhancing audio...")
         
-        # Enhanced audio preprocessing
         recorder = AudioRecorder()
-        if isinstance(audio_file, tuple):
-            enhanced_audio = recorder.enhance_audio_quality(audio_file)
-            if enhanced_audio:
-                audio_file = enhanced_audio
+        enhanced_audio_file = recorder.enhance_audio_quality((None, None))  # Use file directly
+        if enhanced_audio_file:
+            audio_file = enhanced_audio_file
         
-        # Add timeout wrapper for transcription
-        transcription = None
-        try:
-            if st.session_state.openai_api_key:
-                # Use asyncio timeout for API calls
-                transcription = await asyncio.wait_for(
-                    transcribe_with_api(audio_file, st.session_state.openai_api_key),
-                    timeout=30.0  # 30 second timeout
-                )
-            else:
-                # Local processing with timeout
-                def transcribe_local():
-                    recognizer = SpeechRecognizer(model_name=st.session_state.whisper_model)
-                    return recognizer.transcribe_audio(audio_file)
-                
-                # Run in thread with timeout
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(transcribe_local)
-                    transcription = future.result(timeout=60.0)  # 60 second timeout for local
-                    
-        except asyncio.TimeoutError:
-            st.session_state.message_queue.put("Error: Speech recognition timed out. Please try a shorter audio clip.")
-            return None, None, 0, 0, 0
-        except Exception as e:
-            st.session_state.message_queue.put(f"Error: Speech recognition failed: {str(e)}")
-            return None, None, 0, 0, 0
+        # Step 2: OpenAI Whisper API Transcription (Better than local)
+        st.session_state.message_queue.put("🎯 Transcribing with OpenAI...")
+        
+        transcription = await asyncio.wait_for(
+            transcribe_with_api(audio_file, st.session_state.openai_api_key),
+            timeout=30.0
+        )
         
         if not transcription or not transcription.get("text"):
-            st.session_state.message_queue.put("Error: No speech detected or transcription failed.")
-            return None, None, transcription.get("latency", 0) if transcription else 0, 0, 0
+            st.session_state.message_queue.put("❌ No speech detected")
+            return None, None, 0, 0, 0
         
-        # Continue with rest of processing...
-        recognizer = SpeechRecognizer()
-        marked_text = recognizer.detect_and_mark_languages(transcription)
+        # Step 3: Auto Language Distribution Detection
+        user_input = transcription["text"]
+        st.session_state.message_queue.put(f"📝 Transcribed: {user_input}")
         
-        st.session_state.message_queue.put(f"Transcribed: {marked_text}")
+        # Detect language distribution from user input
+        if st.session_state.response_language == "auto":
+            detected_distribution = auto_detect_language_distribution(user_input)
+            st.session_state.message_queue.put(f"🔍 Auto-detected: {detected_distribution['cs']}% Czech, {detected_distribution['de']}% German")
         
-        # Rest of the function continues as before...
+        # Step 4: Generate Response with OpenAI
+        st.session_state.message_queue.put("🤖 Generating intelligent response...")
         
-    except Exception as e:
-        logger.error(f"Voice processing error: {str(e)}")
-        st.session_state.message_queue.put(f"Error: Voice processing failed: {str(e)}")
+        # Create enhanced system prompt for auto mode
+        if st.session_state.response_language == "auto":
+            cs_percent = detected_distribution["cs"]
+            de_percent = detected_distribution["de"]
+            system_prompt = (
+                f"You are a multilingual AI language tutor. The user spoke {cs_percent}% Czech and {de_percent}% German. "
+                f"Respond naturally using the same language distribution: {cs_percent}% Czech and {de_percent}% German. "
+                f"Always use language markers [cs] and [de] to indicate language sections. "
+                f"Be conversational and educational."
+            )
+        else:
+            # Use existing logic for other modes
+            system_prompt = None
+        
+        llm_result = await generate_llm_response(user_input, system_prompt)
+        
+        if "error" in llm_result:
+            st.session_state.message_queue.put(f"❌ Response generation failed")
+            return user_input, None, transcription.get("latency", 0), 0, 0
+        
+        response_text = llm_result["response"]
+        st.session_state.message_queue.put(f"💬 Generated: {response_text}")
+        
+        # Step 5: High-Quality Voice Synthesis
+        st.session_state.message_queue.put("🎵 Generating natural speech...")
+        audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+        
+        # Calculate total latency
+        total_latency = time.time() - pipeline_start_time
+        st.session_state.performance_metrics["total_latency"].append(total_latency)
+        
+        # Update conversation history
+        st.session_state.conversation_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "user_input": user_input,
+            "assistant_response": response_text,
+            "latency": {
+                "stt": transcription.get("latency", 0),
+                "llm": llm_result.get("latency", 0),
+                "tts": tts_latency,
+                "total": total_latency
+            }
+        })
+        
+        st.session_state.message_queue.put(f"✅ Complete! Total time: {total_latency:.2f}s")
+        
+        return user_input, audio_path, transcription.get("latency", 0), llm_result.get("latency", 0), tts_latency
+        
+    except asyncio.TimeoutError:
+        st.session_state.message_queue.put("⏰ Processing timed out")
         return None, None, 0, 0, 0
+    except Exception as e:
+        logger.error(f"Enhanced voice processing error: {str(e)}")
+        st.session_state.message_queue.put(f"❌ Error: {str(e)}")
+        return None, None, 0, 0, 0
+        
 async def process_text_input(text):
     """Process text input through the LLM → TTS pipeline with language distribution control"""
     pipeline_start_time = time.time()
@@ -1627,12 +1742,17 @@ def main():
         
         # NEW: Language Response Options
         st.subheader("Response Language")
-        
+ 
         # Choose response language
         response_language = st.radio(
             "Response Language",
-            options=["both", "cs", "de"],
-            format_func=lambda x: {"both": "Both Languages", "cs": "Czech Only", "de": "German Only"}[x]
+            options=["auto", "both", "cs", "de"],
+            format_func=lambda x: {
+                "auto": "Auto Voice Over", 
+                "both": "Both Languages", 
+                "cs": "Czech Only", 
+                "de": "German Only"
+            }[x]
         )
         if response_language != st.session_state.response_language:
             st.session_state.response_language = response_language
@@ -1788,64 +1908,115 @@ def main():
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
         else:
-            # Voice input
-            # Voice input with improved browser compatibility
-            # Voice input - EMERGENCY DEBUG VERSION
+            # Voice input - LIVE RECORDING
             st.subheader("Voice Input")
-
+            
             # Check if API keys are set
             keys_set = (
                 st.session_state.elevenlabs_api_key and 
                 st.session_state.openai_api_key
             )
-
+        
             if not keys_set:
                 st.warning("Please set both API keys in the sidebar first")
             else:
-                st.write("🎤 Voice Input (Simplified for Testing)")
+                st.write("🎤 **Live Voice Recording** - Click to start/stop")
                 
-                # TEMPORARY: Simple text input for voice simulation
-                st.info("🔧 Voice input temporarily simplified due to processing issues")
+                # Initialize recording state
+                if 'is_recording' not in st.session_state:
+                    st.session_state.is_recording = False
+                if 'recorded_audio_data' not in st.session_state:
+                    st.session_state.recorded_audio_data = None
                 
-                simulated_voice_text = st.text_input(
-                    "Simulate voice input (type what you would say):",
-                    placeholder="Example: hallo ahoj"
-                )
+                # Recording controls
+                col_rec1, col_rec2, col_rec3 = st.columns([1, 1, 2])
                 
-                if st.button("Process Simulated Voice", type="primary") and simulated_voice_text:
-                    with st.spinner("Processing simulated voice input..."):
-                        # Add language detection for simple input
-                        detected_text = f"[de] {simulated_voice_text}" if "hallo" in simulated_voice_text.lower() else f"[cs] {simulated_voice_text}"
+                with col_rec1:
+                    if st.button("🎤 Start Recording", disabled=st.session_state.is_recording):
+                        st.session_state.is_recording = True
+                        st.session_state.recorded_audio_data = None
+                        st.experimental_rerun()
+                
+                with col_rec2:
+                    if st.button("⏹️ Stop Recording", disabled=not st.session_state.is_recording):
+                        st.session_state.is_recording = False
+                        st.experimental_rerun()
+                
+                with col_rec3:
+                    if st.session_state.is_recording:
+                        st.error("🔴 **RECORDING...** Speak now!")
+                    else:
+                        st.success("⚪ Ready to record")
+                
+                # Live recording implementation
+                if st.session_state.is_recording:
+                    st.write("📢 **Speak clearly in Czech or German**")
+                    
+                    # HTML5 Media Recorder for live recording
+                    recording_html = f"""
+                    <div id="voice-recorder">
+                        <script>
+                        let mediaRecorder;
+                        let audioChunks = [];
+                        let isRecording = {str(st.session_state.is_recording).lower()};
                         
-                        # Process as text input
-                        audio_path, llm_latency, tts_latency = asyncio.run(process_text_input(detected_text))
+                        if (isRecording && !mediaRecorder) {{
+                            navigator.mediaDevices.getUserMedia({{ audio: true }})
+                            .then(stream => {{
+                                mediaRecorder = new MediaRecorder(stream);
+                                mediaRecorder.start();
+                                
+                                mediaRecorder.ondataavailable = event => {{
+                                    audioChunks.push(event.data);
+                                }};
+                                
+                                mediaRecorder.onstop = () => {{
+                                    const audioBlob = new Blob(audioChunks, {{ type: 'audio/wav' }});
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {{
+                                        // Send audio data to Streamlit
+                                        const audioData = reader.result.split(',')[1];
+                                        window.parent.postMessage({{
+                                            type: 'audio_recorded',
+                                            data: audioData
+                                        }}, '*');
+                                    }};
+                                    reader.readAsDataURL(audioBlob);
+                                    audioChunks = [];
+                                }};
+                            }})
+                            .catch(err => {{
+                                console.error('Microphone access denied:', err);
+                                alert('Please allow microphone access');
+                            }});
+                        }}
                         
-                        # Store results
-                        st.session_state.last_text_input = detected_text
-                        st.session_state.last_audio_output = audio_path
-                        
-                        total_latency = llm_latency + tts_latency
-                        st.success(f"Voice simulation processed in {total_latency:.2f} seconds")
+                        // Stop recording when status changes
+                        if (!isRecording && mediaRecorder && mediaRecorder.state === 'recording') {{
+                            mediaRecorder.stop();
+                            mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                            mediaRecorder = null;
+                        }}
+                        </script>
+                    </div>
+                    """
+                    
+                    st.components.v1.html(recording_html, height=100)
                 
-                # Handle audio data from JavaScript
-                if 'audio_data' not in st.session_state:
-                    st.session_state.audio_data = None
-                
-                # Process button
-                if st.button("Process Last Recording", type="primary"):
-                    if st.session_state.audio_data:
-                        with st.spinner("Processing voice input..."):
-                            # Save base64 audio to temp file
-                            import base64
-                            audio_bytes = base64.b64decode(st.session_state.audio_data)
+                # Process recorded audio
+                if not st.session_state.is_recording and st.button("🎯 Process Recording", type="primary"):
+                    if st.session_state.recorded_audio_data:
+                        with st.spinner("🔄 Processing your voice..."):
+                            # Save audio to temporary file
+                            audio_bytes = base64.b64decode(st.session_state.recorded_audio_data)
                             
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
                                 tmp_file.write(audio_bytes)
                                 audio_file_path = tmp_file.name
                             
-                            # Process the voice input
+                            # Process with enhanced pipeline
                             text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                process_voice_input(audio_file_path)
+                                process_voice_input_enhanced(audio_file_path)
                             )
                             
                             # Store results
@@ -1855,12 +2026,13 @@ def main():
                             
                             # Show results
                             total_latency = stt_latency + llm_latency + tts_latency
-                            st.success(f"Voice processed in {total_latency:.2f} seconds")
+                            st.success(f"✅ Voice processed in {total_latency:.2f} seconds")
                             
                             # Clean up
                             os.unlink(audio_file_path)
+                            st.session_state.recorded_audio_data = None
                     else:
-                        st.warning("No audio recorded yet. Please record first.")
+                        st.warning("⚠️ No recording found. Please record first.")
     
     with col2:
         st.header("Output")
