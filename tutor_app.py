@@ -1,4 +1,5 @@
 import os
+import queue
 import time
 import tempfile
 import logging
@@ -1938,7 +1939,7 @@ def main():
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
         else:
-            # Voice input - SIMPLIFIED LIVE RECORDING
+            # Voice input - WORKING BROWSER RECORDING
             st.subheader("Voice Input")
             
             # Check if API keys are set
@@ -1950,86 +1951,127 @@ def main():
             if not keys_set:
                 st.warning("Please set both API keys in the sidebar first")
             else:
-                st.write("🎤 **Live Voice Recording** - Click to start/stop")
+                st.write("🎤 **Live Voice Recording** - Browser Compatible")
                 
-                # Initialize recording state
-                if 'is_recording' not in st.session_state:
-                    st.session_state.is_recording = False
-                if 'audio_recorder' not in st.session_state:
-                    st.session_state.audio_recorder = AudioRecorder()
+                # Use streamlit-webrtc for reliable recording
+                webrtc_ctx = webrtc_streamer(
+                    key="voice-recorder",
+                    mode=WebRtcMode.SENDONLY,
+                    audio_receiver_size=1024,
+                    client_settings=ClientSettings(
+                        rtc_configuration={
+                            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+                        },
+                        media_stream_constraints={
+                            "video": False,
+                            "audio": {
+                                "echoCancellation": True,
+                                "noiseSuppression": True,
+                                "autoGainControl": True,
+                                "sampleRate": 16000
+                            }
+                        }
+                    )
+                )
                 
-                # Recording controls using native Python
-                col_rec1, col_rec2 = st.columns([1, 1])
-                
-                with col_rec1:
-                    if st.button("🎤 Start Recording", disabled=st.session_state.is_recording):
-                        try:
-                            st.session_state.audio_recorder.start_recording()
-                            st.session_state.is_recording = True
-                            st.success("🔴 Recording started! Speak now...")
-                            st.experimental_rerun()
-                        except Exception as e:
-                            st.error(f"Failed to start recording: {str(e)}")
-                
-                with col_rec2:
-                    if st.button("⏹️ Stop Recording", disabled=not st.session_state.is_recording):
-                        try:
-                            audio_data = st.session_state.audio_recorder.stop_recording()
-                            st.session_state.is_recording = False
-                            
-                            if audio_data:
-                                # Save audio immediately
-                                audio_file = st.session_state.audio_recorder.save_audio(audio_data, "latest_recording.wav")
-                                st.session_state.latest_recording = audio_file
-                                st.success("✅ Recording saved!")
-                            else:
-                                st.warning("⚠️ No audio captured")
-                                
-                            st.experimental_rerun()
-                        except Exception as e:
-                            st.error(f"Failed to stop recording: {str(e)}")
-                            st.session_state.is_recording = False
-                
-                # Show recording status
-                if st.session_state.is_recording:
-                    st.error("🔴 **RECORDING IN PROGRESS**")
-                    st.write("📢 **Speak clearly in Czech or German**")
-                    
-                    # Auto-refresh while recording
-                    time.sleep(0.1)
-                    st.experimental_rerun()
+                # Recording status
+                if webrtc_ctx.state.playing:
+                    st.error("🔴 **RECORDING ACTIVE** - Speak now!")
+                    st.write("📢 **Say something in Czech or German**")
                 else:
-                    st.info("⚪ Ready to record")
+                    st.info("⚪ Click ▶️ above to start recording")
                 
-                # Process recorded audio
-                if st.button("🎯 Process Recording", type="primary"):
-                    if hasattr(st.session_state, 'latest_recording') and st.session_state.latest_recording:
-                        if os.path.exists(st.session_state.latest_recording):
+                # Process recorded audio when available
+                if webrtc_ctx.audio_receiver:
+                    # Collect audio frames
+                    audio_frames = []
+                    try:
+                        while True:
+                            audio_frame = webrtc_ctx.audio_receiver.get_frame(timeout=0.1)
+                            audio_frames.append(audio_frame)
+                    except queue.Empty:
+                        pass
+                    
+                    # Process audio if we have frames
+                    if len(audio_frames) > 10:  # Minimum frames for processing
+                        st.success(f"✅ Captured {len(audio_frames)} audio frames")
+                        
+                        if st.button("🎯 Process Voice Recording", type="primary"):
                             with st.spinner("🔄 Processing your voice..."):
-                                # Process with enhanced pipeline
-                                text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                    process_voice_input_enhanced(st.session_state.latest_recording)
-                                )
-                                
-                                # Store results
-                                if text:
-                                    st.session_state.last_text_input = text
-                                st.session_state.last_audio_output = audio_path
-                                
-                                # Show results
-                                total_latency = stt_latency + llm_latency + tts_latency
-                                st.success(f"✅ Voice processed in {total_latency:.2f} seconds")
-                                
-                                # Clean up
                                 try:
-                                    os.unlink(st.session_state.latest_recording)
-                                except:
-                                    pass
-                                st.session_state.latest_recording = None
-                        else:
-                            st.warning("⚠️ Recording file not found")
-                    else:
-                        st.warning("⚠️ No recording found. Please record first.")    
+                                    # Convert frames to audio file
+                                    sample_rate = 16000
+                                    audio_data = []
+                                    
+                                    for frame in audio_frames:
+                                        # Convert frame to numpy array
+                                        sound = frame.to_ndarray()
+                                        audio_data.append(sound)
+                                    
+                                    if audio_data:
+                                        # Combine all audio data
+                                        combined_audio = np.concatenate(audio_data, axis=0)
+                                        
+                                        # Save to temporary file
+                                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+                                            sf.write(tmp_file.name, combined_audio, sample_rate)
+                                            audio_file_path = tmp_file.name
+                                        
+                                        # Process with enhanced pipeline
+                                        text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
+                                            process_voice_input_enhanced(audio_file_path)
+                                        )
+                                        
+                                        # Store results
+                                        if text:
+                                            st.session_state.last_text_input = text
+                                        st.session_state.last_audio_output = audio_path
+                                        
+                                        # Show results
+                                        total_latency = stt_latency + llm_latency + tts_latency
+                                        st.success(f"✅ Voice processed in {total_latency:.2f} seconds")
+                                        
+                                        # Clean up
+                                        os.unlink(audio_file_path)
+                                    else:
+                                        st.error("❌ No audio data captured")
+                                        
+                                except Exception as e:
+                                    st.error(f"❌ Processing failed: {str(e)}")
+                    
+                # Alternative: File upload as backup
+                st.markdown("---")
+                st.write("**Alternative: Upload Audio File**")
+                uploaded_audio = st.file_uploader(
+                    "Upload audio file (WAV/MP3)", 
+                    type=['wav', 'mp3', 'ogg'],
+                    help="Upload a recorded audio file if live recording doesn't work"
+                )
+                
+                if uploaded_audio is not None:
+                    # Save uploaded file
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+                        tmp_file.write(uploaded_audio.read())
+                        audio_file_path = tmp_file.name
+                    
+                    if st.button("🎯 Process Uploaded Audio", type="primary"):
+                        with st.spinner("🔄 Processing uploaded audio..."):
+                            # Process with enhanced pipeline
+                            text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
+                                process_voice_input_enhanced(audio_file_path)
+                            )
+                            
+                            # Store results
+                            if text:
+                                st.session_state.last_text_input = text
+                            st.session_state.last_audio_output = audio_path
+                            
+                            # Show results
+                            total_latency = stt_latency + llm_latency + tts_latency
+                            st.success(f"✅ Audio processed in {total_latency:.2f} seconds")
+                            
+                            # Clean up
+                            os.unlink(audio_file_path)
     with col2:
         st.header("Output")
         
