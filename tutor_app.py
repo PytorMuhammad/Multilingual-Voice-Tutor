@@ -206,33 +206,54 @@ class AudioRecorder:
         """Enhance audio quality for better transcription, including noise reduction"""
         if audio_data is None:
             return None
-        audio, sample_rate = audio_data
-        # Save to temporary file
-        temp_wav = "temp_enhance.wav"
-        sf.write(temp_wav, audio, sample_rate)
-        # Load with pydub for processing
-        audio_segment = AudioSegment.from_wav(temp_wav)
-        # Normalize volume
-        normalized_audio = audio_segment.normalize()
-        # Remove silence at beginning and end
-        trimmed_audio = self._trim_silence(normalized_audio)
-        # Convert to numpy array for noise reduction
-        samples = np.array(trimmed_audio.get_array_of_samples()).astype(np.float32)
-        # Apply noise reduction
-        reduced_noise = nr.reduce_noise(y=samples, sr=sample_rate)
-        # Convert back to AudioSegment
-        reduced_audio = AudioSegment(
-            reduced_noise.astype(np.int16).tobytes(),
-            frame_rate=sample_rate,
-            sample_width=2,
-            channels=1
-        )
-        # Export enhanced audio
-        enhanced_wav = "enhanced_recording.wav"
-        reduced_audio.export(enhanced_wav, format="wav")
-        # Clean up temp file
-        os.remove(temp_wav)
-        return enhanced_wav
+            
+        # Handle both tuple and file path inputs
+        if isinstance(audio_data, tuple):
+            audio, sample_rate = audio_data
+            # Save to temporary file
+            temp_wav = "temp_enhance.wav"
+            sf.write(temp_wav, audio, sample_rate)
+        else:
+            # audio_data is a file path
+            temp_wav = audio_data
+        
+        try:
+            # Load with pydub for processing
+            audio_segment = AudioSegment.from_wav(temp_wav)
+            
+            # Normalize volume
+            normalized_audio = audio_segment.normalize()
+            
+            # Remove silence at beginning and end
+            trimmed_audio = self._trim_silence(normalized_audio)
+            
+            # Convert to numpy array for noise reduction
+            samples = np.array(trimmed_audio.get_array_of_samples()).astype(np.float32)
+            
+            # Apply noise reduction
+            reduced_noise = nr.reduce_noise(y=samples, sr=self.sample_rate)
+            
+            # Convert back to AudioSegment
+            reduced_audio = AudioSegment(
+                reduced_noise.astype(np.int16).tobytes(),
+                frame_rate=self.sample_rate,
+                sample_width=2,
+                channels=1
+            )
+            
+            # Export enhanced audio
+            enhanced_wav = "enhanced_recording.wav"
+            reduced_audio.export(enhanced_wav, format="wav")
+            
+            # Clean up temp file if we created it
+            if isinstance(audio_data, tuple) and os.path.exists(temp_wav):
+                os.remove(temp_wav)
+                
+            return enhanced_wav
+            
+        except Exception as e:
+            logger.error(f"Audio enhancement error: {str(e)}")
+            return temp_wav if os.path.exists(temp_wav) else None
         
     def _trim_silence(self, audio_segment, silence_threshold=-50, min_silence_len=300):
         """Remove silence from beginning and end of recording"""
@@ -1460,12 +1481,13 @@ async def process_voice_input_enhanced(audio_file):
         # Step 1: Enhanced Audio Preprocessing
         st.session_state.message_queue.put("🎧 Cleaning and enhancing audio...")
         
+        # Enhance audio quality
         recorder = AudioRecorder()
-        enhanced_audio_file = recorder.enhance_audio_quality((None, None))  # Use file directly
-        if enhanced_audio_file:
+        enhanced_audio_file = recorder.enhance_audio_quality(audio_file)
+        if enhanced_audio_file and os.path.exists(enhanced_audio_file):
             audio_file = enhanced_audio_file
         
-        # Step 2: OpenAI Whisper API Transcription (Better than local)
+        # Step 2: OpenAI Whisper API Transcription
         st.session_state.message_queue.put("🎯 Transcribing with OpenAI...")
         
         transcription = await asyncio.wait_for(
@@ -1478,10 +1500,11 @@ async def process_voice_input_enhanced(audio_file):
             return None, None, 0, 0, 0
         
         # Step 3: Auto Language Distribution Detection
-        user_input = transcription["text"]
+        user_input = transcription["text"].strip()
         st.session_state.message_queue.put(f"📝 Transcribed: {user_input}")
         
-        # Detect language distribution from user input
+        # Detect language distribution from user input for auto mode
+        detected_distribution = None
         if st.session_state.response_language == "auto":
             detected_distribution = auto_detect_language_distribution(user_input)
             st.session_state.message_queue.put(f"🔍 Auto-detected: {detected_distribution['cs']}% Czech, {detected_distribution['de']}% German")
@@ -1490,7 +1513,7 @@ async def process_voice_input_enhanced(audio_file):
         st.session_state.message_queue.put("🤖 Generating intelligent response...")
         
         # Create enhanced system prompt for auto mode
-        if st.session_state.response_language == "auto":
+        if st.session_state.response_language == "auto" and detected_distribution:
             cs_percent = detected_distribution["cs"]
             de_percent = detected_distribution["de"]
             system_prompt = (
@@ -1506,7 +1529,7 @@ async def process_voice_input_enhanced(audio_file):
         llm_result = await generate_llm_response(user_input, system_prompt)
         
         if "error" in llm_result:
-            st.session_state.message_queue.put(f"❌ Response generation failed")
+            st.session_state.message_queue.put(f"❌ Response generation failed: {llm_result.get('error')}")
             return user_input, None, transcription.get("latency", 0), 0, 0
         
         response_text = llm_result["response"]
@@ -1534,6 +1557,13 @@ async def process_voice_input_enhanced(audio_file):
         })
         
         st.session_state.message_queue.put(f"✅ Complete! Total time: {total_latency:.2f}s")
+        
+        # Clean up enhanced audio file
+        if enhanced_audio_file and enhanced_audio_file != audio_file:
+            try:
+                os.unlink(enhanced_audio_file)
+            except:
+                pass
         
         return user_input, audio_path, transcription.get("latency", 0), llm_result.get("latency", 0), tts_latency
         
@@ -1908,7 +1938,7 @@ def main():
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
         else:
-            # Voice input - LIVE RECORDING
+            # Voice input - SIMPLIFIED LIVE RECORDING
             st.subheader("Voice Input")
             
             # Check if API keys are set
@@ -1916,7 +1946,7 @@ def main():
                 st.session_state.elevenlabs_api_key and 
                 st.session_state.openai_api_key
             )
-        
+
             if not keys_set:
                 st.warning("Please set both API keys in the sidebar first")
             else:
@@ -1925,115 +1955,81 @@ def main():
                 # Initialize recording state
                 if 'is_recording' not in st.session_state:
                     st.session_state.is_recording = False
-                if 'recorded_audio_data' not in st.session_state:
-                    st.session_state.recorded_audio_data = None
+                if 'audio_recorder' not in st.session_state:
+                    st.session_state.audio_recorder = AudioRecorder()
                 
-                # Recording controls
-                col_rec1, col_rec2, col_rec3 = st.columns([1, 1, 2])
+                # Recording controls using native Python
+                col_rec1, col_rec2 = st.columns([1, 1])
                 
                 with col_rec1:
                     if st.button("🎤 Start Recording", disabled=st.session_state.is_recording):
-                        st.session_state.is_recording = True
-                        st.session_state.recorded_audio_data = None
-                        st.experimental_rerun()
+                        try:
+                            st.session_state.audio_recorder.start_recording()
+                            st.session_state.is_recording = True
+                            st.success("🔴 Recording started! Speak now...")
+                            st.experimental_rerun()
+                        except Exception as e:
+                            st.error(f"Failed to start recording: {str(e)}")
                 
                 with col_rec2:
                     if st.button("⏹️ Stop Recording", disabled=not st.session_state.is_recording):
-                        st.session_state.is_recording = False
-                        st.experimental_rerun()
+                        try:
+                            audio_data = st.session_state.audio_recorder.stop_recording()
+                            st.session_state.is_recording = False
+                            
+                            if audio_data:
+                                # Save audio immediately
+                                audio_file = st.session_state.audio_recorder.save_audio(audio_data, "latest_recording.wav")
+                                st.session_state.latest_recording = audio_file
+                                st.success("✅ Recording saved!")
+                            else:
+                                st.warning("⚠️ No audio captured")
+                                
+                            st.experimental_rerun()
+                        except Exception as e:
+                            st.error(f"Failed to stop recording: {str(e)}")
+                            st.session_state.is_recording = False
                 
-                with col_rec3:
-                    if st.session_state.is_recording:
-                        st.error("🔴 **RECORDING...** Speak now!")
-                    else:
-                        st.success("⚪ Ready to record")
-                
-                # Live recording implementation
+                # Show recording status
                 if st.session_state.is_recording:
+                    st.error("🔴 **RECORDING IN PROGRESS**")
                     st.write("📢 **Speak clearly in Czech or German**")
                     
-                    # HTML5 Media Recorder for live recording
-                    recording_html = f"""
-                    <div id="voice-recorder">
-                        <script>
-                        let mediaRecorder;
-                        let audioChunks = [];
-                        let isRecording = {str(st.session_state.is_recording).lower()};
-                        
-                        if (isRecording && !mediaRecorder) {{
-                            navigator.mediaDevices.getUserMedia({{ audio: true }})
-                            .then(stream => {{
-                                mediaRecorder = new MediaRecorder(stream);
-                                mediaRecorder.start();
-                                
-                                mediaRecorder.ondataavailable = event => {{
-                                    audioChunks.push(event.data);
-                                }};
-                                
-                                mediaRecorder.onstop = () => {{
-                                    const audioBlob = new Blob(audioChunks, {{ type: 'audio/wav' }});
-                                    const reader = new FileReader();
-                                    reader.onloadend = () => {{
-                                        // Send audio data to Streamlit
-                                        const audioData = reader.result.split(',')[1];
-                                        window.parent.postMessage({{
-                                            type: 'audio_recorded',
-                                            data: audioData
-                                        }}, '*');
-                                    }};
-                                    reader.readAsDataURL(audioBlob);
-                                    audioChunks = [];
-                                }};
-                            }})
-                            .catch(err => {{
-                                console.error('Microphone access denied:', err);
-                                alert('Please allow microphone access');
-                            }});
-                        }}
-                        
-                        // Stop recording when status changes
-                        if (!isRecording && mediaRecorder && mediaRecorder.state === 'recording') {{
-                            mediaRecorder.stop();
-                            mediaRecorder.stream.getTracks().forEach(track => track.stop());
-                            mediaRecorder = null;
-                        }}
-                        </script>
-                    </div>
-                    """
-                    
-                    st.components.v1.html(recording_html, height=100)
+                    # Auto-refresh while recording
+                    time.sleep(0.1)
+                    st.experimental_rerun()
+                else:
+                    st.info("⚪ Ready to record")
                 
                 # Process recorded audio
-                if not st.session_state.is_recording and st.button("🎯 Process Recording", type="primary"):
-                    if st.session_state.recorded_audio_data:
-                        with st.spinner("🔄 Processing your voice..."):
-                            # Save audio to temporary file
-                            audio_bytes = base64.b64decode(st.session_state.recorded_audio_data)
-                            
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-                                tmp_file.write(audio_bytes)
-                                audio_file_path = tmp_file.name
-                            
-                            # Process with enhanced pipeline
-                            text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                process_voice_input_enhanced(audio_file_path)
-                            )
-                            
-                            # Store results
-                            if text:
-                                st.session_state.last_text_input = text
-                            st.session_state.last_audio_output = audio_path
-                            
-                            # Show results
-                            total_latency = stt_latency + llm_latency + tts_latency
-                            st.success(f"✅ Voice processed in {total_latency:.2f} seconds")
-                            
-                            # Clean up
-                            os.unlink(audio_file_path)
-                            st.session_state.recorded_audio_data = None
+                if st.button("🎯 Process Recording", type="primary"):
+                    if hasattr(st.session_state, 'latest_recording') and st.session_state.latest_recording:
+                        if os.path.exists(st.session_state.latest_recording):
+                            with st.spinner("🔄 Processing your voice..."):
+                                # Process with enhanced pipeline
+                                text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
+                                    process_voice_input_enhanced(st.session_state.latest_recording)
+                                )
+                                
+                                # Store results
+                                if text:
+                                    st.session_state.last_text_input = text
+                                st.session_state.last_audio_output = audio_path
+                                
+                                # Show results
+                                total_latency = stt_latency + llm_latency + tts_latency
+                                st.success(f"✅ Voice processed in {total_latency:.2f} seconds")
+                                
+                                # Clean up
+                                try:
+                                    os.unlink(st.session_state.latest_recording)
+                                except:
+                                    pass
+                                st.session_state.latest_recording = None
+                        else:
+                            st.warning("⚠️ Recording file not found")
                     else:
-                        st.warning("⚠️ No recording found. Please record first.")
-    
+                        st.warning("⚠️ No recording found. Please record first.")    
     with col2:
         st.header("Output")
         
