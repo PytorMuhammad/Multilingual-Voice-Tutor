@@ -9,7 +9,6 @@ import queue
 import threading
 import re
 import streamlit.components.v1
-from scipy import signal 
 import uuid
 import base64
 from pathlib import Path
@@ -205,62 +204,51 @@ class AudioRecorder:
         return output_filename
 
     def enhance_audio_quality(self, audio_data):
-        """ENHANCED: Aggressive audio enhancement for pronunciation detection"""
+        """Enhanced audio quality with 500% volume boost for better transcription"""
         if audio_data is None:
             return None
             
         # Handle both tuple and file path inputs
         if isinstance(audio_data, tuple):
             audio, sample_rate = audio_data
+            # Save to temporary file
             temp_wav = "temp_enhance.wav"
             sf.write(temp_wav, audio, sample_rate)
         else:
+            # audio_data is a file path
             temp_wav = audio_data
         
         try:
             # Load with pydub for processing
             audio_segment = AudioSegment.from_wav(temp_wav)
             
-            # AGGRESSIVE ENHANCEMENT FOR PRONUNCIATION
-            # 1. Massive volume boost (500% as requested)
+            # CRITICAL: 500% VOLUME BOOST for better recognition
             boosted_audio = audio_segment + 14  # +14dB ≈ 500% volume increase
             
-            # 2. Normalize to prevent clipping but maintain high volume
-            normalized_audio = boosted_audio.normalize(headroom=0.1)
+            # Normalize to prevent clipping
+            normalized_audio = boosted_audio.normalize()
             
-            # 3. Apply compression for consistent levels
-            compressed_audio = normalized_audio.compress_dynamic_range(
-                threshold=-10.0,  # More aggressive compression
-                ratio=4.0,        # Higher compression ratio
-                attack=1.0,       # Fast attack
-                release=50.0      # Moderate release
-            )
+            # Remove silence at beginning and end
+            trimmed_audio = self._trim_silence(normalized_audio)
             
-            # 4. Enhanced noise reduction with higher sensitivity
-            samples = np.array(compressed_audio.get_array_of_samples()).astype(np.float32)
+            # Convert to numpy array for noise reduction
+            samples = np.array(trimmed_audio.get_array_of_samples()).astype(np.float32)
             
-            # More aggressive noise reduction for pronunciation clarity
-            reduced_noise = nr.reduce_noise(
-                y=samples, 
-                sr=self.sample_rate,
-                stationary=False,    # Better for speech
-                prop_decrease=0.9    # More aggressive noise reduction
-            )
+            # Apply noise reduction
+            reduced_noise = nr.reduce_noise(y=samples, sr=self.sample_rate, stationary=False, prop_decrease=0.8)
             
-            # 5. Convert back and apply final speech enhancement
-            enhanced_audio = AudioSegment(
+            # Convert back to AudioSegment with enhanced settings
+            reduced_audio = AudioSegment(
                 reduced_noise.astype(np.int16).tobytes(),
                 frame_rate=self.sample_rate,
                 sample_width=2,
                 channels=1
             )
             
-            # 6. Final boost for pronunciation detection
-            final_audio = enhanced_audio + 3  # Additional 3dB boost
-            
-            # Export enhanced audio
+            # Final boost and export
+            final_audio = reduced_audio + 6  # Additional 6dB boost
             enhanced_wav = "enhanced_recording.wav"
-            final_audio.export(enhanced_wav, format="wav")
+            final_audio.export(enhanced_wav, format="wav", parameters=["-ar", "16000", "-ac", "1"])
             
             # Clean up temp file if we created it
             if isinstance(audio_data, tuple) and os.path.exists(temp_wav):
@@ -269,7 +257,7 @@ class AudioRecorder:
             return enhanced_wav
             
         except Exception as e:
-            logger.error(f"Enhanced audio processing error: {str(e)}")
+            logger.error(f"Audio enhancement error: {str(e)}")
             return temp_wav if os.path.exists(temp_wav) else None
         
     def _trim_silence(self, audio_segment, silence_threshold=-50, min_silence_len=300):
@@ -293,31 +281,6 @@ class AudioRecorder:
             
         return combined_audio
 
-def enhance_pronunciation_detection(audio_data, sample_rate):
-    """Enhanced audio preprocessing specifically for pronunciation detection"""
-    try:
-        # Step 1: Normalize and apply aggressive gain
-        normalized = audio_data / np.max(np.abs(audio_data)) if np.max(np.abs(audio_data)) > 0 else audio_data
-        
-        # Step 2: Apply frequency emphasis for speech clarity
-        # High-pass filter to remove low-frequency noise
-        from scipy import signal
-        b, a = signal.butter(3, 300 / (sample_rate / 2), 'high')
-        filtered = signal.filtfilt(b, a, normalized)
-        
-        # Step 3: Dynamic range compression for consistent volume
-        compressed = np.sign(filtered) * np.power(np.abs(filtered), 0.7)
-        
-        # Step 4: Final volume boost and normalization
-        final_audio = compressed * 3.0  # Additional 3x boost
-        final_audio = np.clip(final_audio, -1.0, 1.0)
-        
-        return final_audio
-        
-    except Exception as e:
-        logger.error(f"Audio enhancement error: {str(e)}")
-        return audio_data  # Return original if enhancement fails
-    
 class SpeechRecognizer:
     """Class for speech recognition and language detection with improved accuracy"""
     
@@ -529,68 +492,71 @@ class SpeechRecognizer:
         return default_language
 
 async def transcribe_with_api(audio_file, api_key):
-    """ENHANCED: Transcribe with pronunciation-focused settings"""
+    """Enhanced transcription focusing on pronunciation accuracy"""
     start_time = time.time()
     
     try:
         async with httpx.AsyncClient() as client:
+            # Open file in binary mode
             with open(audio_file, "rb") as f:
                 file_content = f.read()
             
+            # Prepare the multipart form data
             files = {
                 "file": (os.path.basename(audio_file), file_content, "audio/wav")
             }
             
-            # ENHANCED: Pronunciation-focused transcription settings
+            # ENHANCED: Pronunciation-focused settings
             data = {
                 "model": "whisper-1",
                 "response_format": "verbose_json",
-                "temperature": "0.0",  # Lowest temperature for pronunciation accuracy
-                "language": None,      # Let it auto-detect for better pronunciation handling
-                "prompt": "This audio contains Czech and German speech. Focus on accurate pronunciation detection and word recognition."  # Pronunciation hint
+                "temperature": "0.0",  # Lowest temperature for consistent pronunciation
+                "language": None,  # Let it auto-detect for better pronunciation recognition
+                "prompt": "Czech and German pronunciation. Listen carefully to accent and pronunciation patterns."
             }
             
+            # Send the request with a longer timeout
             response = await client.post(
                 "https://api.openai.com/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 files=files,
                 data=data,
-                timeout=45.0  # Increased timeout for detailed processing
+                timeout=30.0
             )
             
             if response.status_code == 200:
                 result = response.json()
                 
-                # Enhanced result processing with pronunciation confidence
+                # Calculate latency and update metrics
                 latency = time.time() - start_time
                 st.session_state.performance_metrics["stt_latency"].append(latency)
                 st.session_state.performance_metrics["api_calls"]["whisper"] += 1
                 
-                # Extract and enhance transcription quality
-                transcribed_text = result.get("text", "").strip()
+                # Extract segments with confidence scores
+                segments = result.get("segments", [])
                 
-                # Apply pronunciation correction if needed
-                corrected_text = apply_pronunciation_corrections(transcribed_text)
+                # ENHANCED: Add pronunciation analysis
+                enhanced_text = enhance_pronunciation_context(result.get("text", ""), segments)
                 
                 return {
-                    "text": corrected_text,
-                    "original_text": transcribed_text,  # Keep original for comparison
+                    "text": enhanced_text,
+                    "original_text": result.get("text", ""),
                     "language": result.get("language", "auto"),
-                    "segments": result.get("segments", []),
+                    "segments": segments,
                     "latency": latency,
-                    "confidence": calculate_transcription_confidence(result)
+                    "pronunciation_enhanced": True
                 }
             else:
-                logger.error(f"Transcription API error: {response.status_code} - {response.text}")
+                logger.error(f"API error: {response.status_code} - {response.text}")
                 return {
                     "text": "",
                     "language": None,
-                    "error": f"API error: {response.status_code}",
+                    "error": f"API error: {response.status_code} - {response.text}",
                     "latency": time.time() - start_time
                 }
     
     except Exception as e:
-        logger.error(f"Enhanced transcription error: {str(e)}")
+        logger.error(f"Transcription API error: {str(e)}")
         return {
             "text": "",
             "language": None,
@@ -598,116 +564,91 @@ async def transcribe_with_api(audio_file, api_key):
             "latency": time.time() - start_time
         }
 
-def apply_pronunciation_corrections(text):
-    """Apply common pronunciation-based corrections for Czech/German"""
-    corrections = {
-        # Common mispronunciations that Whisper might make
-        "check": "Czech",
-        "germin": "German", 
-        "guten tag": "Guten Tag",
-        "dobry den": "Dobrý den",
-        "prosim": "prosím",
-        "dekuji": "děkuji",
-        "danke": "Danke",
-        "bitte": "Bitte"
-    }
-    
-    corrected = text
-    for wrong, correct in corrections.items():
-        corrected = re.sub(re.escape(wrong), correct, corrected, flags=re.IGNORECASE)
-    
-    return corrected
-
-def calculate_transcription_confidence(whisper_result):
-    """Calculate confidence score from Whisper result"""
-    segments = whisper_result.get("segments", [])
+def enhance_pronunciation_context(text, segments):
+    """Add pronunciation context to help OpenAI understand better"""
     if not segments:
-        return 0.5
+        return text
     
-    # Average confidence from segments (if available)
-    confidences = []
+    enhanced_text = ""
     for segment in segments:
-        if "avg_logprob" in segment:
-            # Convert log probability to confidence (rough approximation)
-            confidence = min(1.0, max(0.0, np.exp(segment["avg_logprob"])))
-            confidences.append(confidence)
+        segment_text = segment.get("text", "").strip()
+        confidence = segment.get("confidence", 0)
+        
+        # Add confidence and pronunciation markers
+        if confidence < 0.8:
+            enhanced_text += f"[unclear pronunciation: {segment_text}] "
+        else:
+            enhanced_text += f"{segment_text} "
     
-    return np.mean(confidences) if confidences else 0.7
+    return enhanced_text.strip()
 
 # ----------------------------------------------------------------------------------
 # LANGUAGE MODEL (LLM) SECTION - ENHANCED FOR BETTER LANGUAGE CONTROL
 # ----------------------------------------------------------------------------------
 
 async def generate_llm_response(prompt, system_prompt=None, api_key=None):
-    """ENHANCED: Generate response with pronunciation-based understanding"""
+    """Generate response with enhanced pronunciation understanding"""
     if not api_key:
         api_key = st.session_state.openai_api_key
         
     if not api_key:
         logger.error("OpenAI API key not provided")
         return {
-            "response": "Error: OpenAI API key not configured.",
+            "response": "Error: OpenAI API key not configured. Please set it in the sidebar.",
             "latency": 0
         }
     
     start_time = time.time()
+    
+    # Set up the conversation messages
     messages = []
     
     # ENHANCED: Pronunciation-aware system prompt
     if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
+        enhanced_system_prompt = system_prompt + "\n\nIMPORTANT: Pay special attention to pronunciation patterns in the user's speech. If you see unclear pronunciation markers or confidence indicators, interpret based on phonetic similarity to Czech or German words."
+        messages.append({"role": "system", "content": enhanced_system_prompt})
     else:
+        # Create dynamic system prompt based on language preferences
         response_language = st.session_state.response_language
         
-        # Create pronunciation-aware system prompt
-        base_system = (
-            "You are a multilingual AI language tutor specializing in Czech and German. "
-            "The user's input may contain pronunciation-based transcription errors. "
-            "Interpret the user's intent based on context and phonetic similarity. "
-            "Focus on understanding what they MEANT to say, not just what was transcribed. "
-        )
+        base_system_content = """You are a multilingual AI language tutor specializing in Czech and German. 
+        
+CRITICAL: You receive transcriptions from speech recognition. Sometimes the transcription may not be perfect due to pronunciation. 
+Your job is to:
+1. Interpret what the user ACTUALLY meant to say based on pronunciation similarity
+2. Understand phonetic patterns in Czech and German
+3. Respond naturally based on the intended meaning, not just the literal transcription
+4. Correct pronunciation errors gently in your response
+        
+"""
         
         if response_language == "both":
+            # Get distribution preferences
             cs_percent = st.session_state.language_distribution["cs"]
             de_percent = st.session_state.language_distribution["de"]
             
-            system_content = (
-                base_system +
-                f"Respond using approximately {cs_percent}% Czech and {de_percent}% German. "
-                f"Always use language markers [cs] and [de]. "
-                f"Correct any pronunciation errors you detect in your response."
-            )
-        elif response_language == "auto":
-            system_content = (
-                base_system +
-                "Auto-detect the language distribution from user input and respond accordingly. "
-                "Use [cs] and [de] markers. Correct pronunciation errors you detect."
-            )
-        elif response_language in ["cs", "de"]:
-            lang_name = "Czech" if response_language == "cs" else "German"
-            system_content = (
-                base_system +
-                f"Respond only in {lang_name} with [{response_language}] markers. "
-                f"Understand pronunciation-based errors and respond appropriately."
-            )
+            system_content = base_system_content + f"""
+            Respond using both languages with approximately {cs_percent}% Czech and {de_percent}% German. 
+            Always use appropriate language markers [cs] and [de] to indicate language sections.
+            """
+        elif response_language == "cs":
+            system_content = base_system_content + "Always respond in Czech only, with the [cs] marker."
+        elif response_language == "de":
+            system_content = base_system_content + "Always respond in German only, with the [de] marker."
         else:
-            system_content = (
-                base_system +
-                "Respond in the same language as user input. Use [cs] and [de] markers. "
-                "Correct pronunciation errors in your understanding."
-            )
+            system_content = base_system_content + "Respond in the same language the user intended to use."
             
         messages.append({"role": "system", "content": system_content})
     
-    # Add conversation history for context
-    for exchange in st.session_state.conversation_history[-3:]:  # Last 3 for context
+    # Add previous conversation history for context
+    for exchange in st.session_state.conversation_history[-3:]:  # Last 3 exchanges for pronunciation context
         if "user_input" in exchange:
             messages.append({"role": "user", "content": exchange["user_input"]})
         if "assistant_response" in exchange:
             messages.append({"role": "assistant", "content": exchange["assistant_response"]})
     
-    # Add current prompt with pronunciation context
-    enhanced_prompt = f"User said (may contain pronunciation-based transcription errors): {prompt}"
+    # Add the current prompt with pronunciation context
+    enhanced_prompt = f"User speech (may contain transcription uncertainties): {prompt}"
     messages.append({"role": "user", "content": enhanced_prompt})
     
     try:
@@ -719,16 +660,15 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "gpt-3.5-turbo",
+                    "model": "gpt-4",  # Use GPT-4 for better pronunciation understanding
                     "messages": messages,
-                    "temperature": 0.3,  # Lower for more consistent pronunciation understanding
-                    "max_tokens": 400,
-                    "presence_penalty": 0.2,  # Encourage varied responses
-                    "frequency_penalty": 0.1   # Slight penalty for repetition
+                    "temperature": 0.3,  # Lower temperature for more consistent pronunciation interpretation
+                    "max_tokens": 400
                 },
                 timeout=30.0
             )
             
+            # Calculate latency and update metrics
             latency = time.time() - start_time
             st.session_state.performance_metrics["llm_latency"].append(latency)
             st.session_state.performance_metrics["api_calls"]["openai"] += 1
@@ -737,7 +677,7 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                 result = response.json()
                 response_text = result["choices"][0]["message"]["content"]
                 
-                # Ensure language markers are preserved
+                # Ensure language markers are preserved and added if missing
                 response_text = preserve_language_markers(prompt, response_text)
                 
                 return {
@@ -747,7 +687,7 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                     "pronunciation_aware": True
                 }
             else:
-                logger.error(f"LLM API error: {response.status_code}")
+                logger.error(f"LLM API error: {response.status_code} - {response.text}")
                 return {
                     "response": f"Error: {response.status_code}",
                     "error": response.text,
@@ -755,7 +695,7 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                 }
     
     except Exception as e:
-        logger.error(f"Enhanced LLM error: {str(e)}")
+        logger.error(f"LLM error: {str(e)}")
         return {
             "response": f"Error: {str(e)}",
             "latency": time.time() - start_time
@@ -2023,8 +1963,17 @@ def main():
                     total_latency = llm_latency + tts_latency
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
+        # ADD these session state variables at the top after other session states
+        if 'recording_state' not in st.session_state:
+            st.session_state.recording_state = "idle"  # idle, recording, recorded
+        if 'recorded_audio_data' not in st.session_state:
+            st.session_state.recorded_audio_data = None
+        if 'recorded_audio_path' not in st.session_state:
+            st.session_state.recorded_audio_path = None
+
+        # REPLACE the voice input section in main() with this:
         else:
-            # Voice input - WORKING BROWSER RECORDING
+            # Enhanced Voice input with single button system
             st.subheader("Voice Input")
             
             # Check if API keys are set
@@ -2036,145 +1985,138 @@ def main():
             if not keys_set:
                 st.warning("Please set both API keys in the sidebar first")
             else:
-                st.write("🎤 **Live Voice Recording** - Browser Compatible")
+                st.write("🎤 **Enhanced Voice Recording** - Single Click System")
                 
-                # Use streamlit-webrtc for reliable recording
-                webrtc_ctx = webrtc_streamer(
-                    key="voice-recorder",
-                    mode=WebRtcMode.SENDONLY,
-                    audio_receiver_size=1024,
-                    client_settings=ClientSettings(
-                        rtc_configuration={
-                            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-                        },
-                        media_stream_constraints={
-                            "video": False,
-                            "audio": {
-                                "echoCancellation": True,
-                                "noiseSuppression": True,
-                                "autoGainControl": True,
-                                "sampleRate": 16000
-                            }
-                        }
-                    )
-                )
+                # Recording state display
+                if st.session_state.recording_state == "idle":
+                    st.info("⚪ Ready to record - Click the button below")
+                elif st.session_state.recording_state == "recording":
+                    st.error("🔴 **RECORDING ACTIVE** - Click again to stop!")
+                elif st.session_state.recording_state == "recorded":
+                    st.success("✅ **Audio Recorded** - Preview or Process below")
                 
-                # Recording status
-                if webrtc_ctx.state.playing:
-                    st.error("🔴 **RECORDING ACTIVE** - Speak now!")
-                    st.write("📢 **Say something in Czech or German**")
-                else:
-                    st.info("⚪ Click ▶️ above to start recording")
+                # Single Record/Stop Button
+                col_a, col_b, col_c = st.columns(3)
                 
-                # Process recorded audio when available
-                # Process recorded audio when available
-                if webrtc_ctx.audio_receiver:
-                    # Collect audio frames with improved buffering
-                    audio_frames = []
-                    frame_count = 0
-                    
-                    try:
-                        # Collect more frames for better audio quality
-                        while frame_count < 100:  # Increased frame collection
-                            try:
-                                audio_frame = webrtc_ctx.audio_receiver.get_frame(timeout=0.5)
-                                audio_frames.append(audio_frame)
-                                frame_count += 1
-                            except queue.Empty:
-                                if frame_count > 0:  # If we have some frames, break
-                                    break
-                                continue
-                    except Exception as e:
-                        st.error(f"Audio collection error: {e}")
-                    
-                    # Process audio if we have sufficient frames
-                    if len(audio_frames) > 5:  # Reduced minimum for testing
-                        st.success(f"✅ Captured {len(audio_frames)} audio frames")
-                        
-                        if st.button("🎯 Process Voice Recording", type="primary"):
-                            with st.spinner("🔄 Processing your voice with enhanced pronunciation detection..."):
+                with col_a:
+                    if st.session_state.recording_state == "idle":
+                        if st.button("🎤 **START RECORDING**", type="primary", use_container_width=True):
+                            st.session_state.recording_state = "recording"
+                            # Start recording using browser's MediaRecorder
+                            st.rerun()
+                            
+                    elif st.session_state.recording_state == "recording":
+                        if st.button("⏹️ **STOP RECORDING**", type="secondary", use_container_width=True):
+                            st.session_state.recording_state = "recorded"
+                            st.rerun()
+                
+                # Preview Button (only when recorded)
+                with col_b:
+                    if st.session_state.recording_state == "recorded" and st.session_state.recorded_audio_path:
+                        if st.button("👂 **PREVIEW AUDIO**", use_container_width=True):
+                            st.audio(st.session_state.recorded_audio_path, format="audio/wav")
+                
+                # Process Button (only when recorded)  
+                with col_c:
+                    if st.session_state.recording_state == "recorded" and st.session_state.recorded_audio_path:
+                        if st.button("🎯 **PROCESS VOICE**", type="primary", use_container_width=True):
+                            with st.spinner("🔄 Processing your enhanced voice..."):
                                 try:
-                                    # ENHANCED: Convert frames to audio file with 500% volume boost
-                                    sample_rate = 16000
-                                    audio_data = []
+                                    # Process with enhanced pipeline
+                                    text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
+                                        process_voice_input_enhanced(st.session_state.recorded_audio_path)
+                                    )
                                     
-                                    for frame in audio_frames:
-                                        # Convert frame to numpy array and apply 500% volume boost
-                                        sound = frame.to_ndarray()
-                                        # Apply 5x volume boost (500% increase)
-                                        boosted_sound = sound * 5.0
-                                        # Prevent clipping
-                                        boosted_sound = np.clip(boosted_sound, -1.0, 1.0)
-                                        audio_data.append(boosted_sound)
+                                    # Store results
+                                    if text:
+                                        st.session_state.last_text_input = text
+                                    st.session_state.last_audio_output = audio_path
                                     
-                                    if audio_data:
-                                        # Combine all audio data
-                                        combined_audio = np.concatenate(audio_data, axis=0)
-                                        
-                                        # ENHANCED: Additional audio preprocessing for pronunciation
-                                        enhanced_audio = enhance_pronunciation_detection(combined_audio, sample_rate)
-                                        
-                                        # Save to temporary file
-                                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-                                            sf.write(tmp_file.name, enhanced_audio, sample_rate)
-                                            audio_file_path = tmp_file.name
-                                        
-                                        # Process with enhanced pipeline
-                                        text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                            process_voice_input_enhanced(audio_file_path)
-                                        )
-                                        
-                                        # Store results
-                                        if text:
-                                            st.session_state.last_text_input = text
-                                        st.session_state.last_audio_output = audio_path
-                                        
-                                        # Show results
-                                        total_latency = stt_latency + llm_latency + tts_latency
-                                        st.success(f"✅ Voice processed in {total_latency:.2f} seconds")
-                                        
-                                        # Clean up
-                                        os.unlink(audio_file_path)
-                                    else:
-                                        st.error("❌ No audio data captured - please try speaking louder and closer to microphone")
-                                        
+                                    # Reset recording state
+                                    st.session_state.recording_state = "idle"
+                                    st.session_state.recorded_audio_path = None
+                                    
+                                    # Show results
+                                    total_latency = stt_latency + llm_latency + tts_latency
+                                    st.success(f"✅ Voice processed in {total_latency:.2f} seconds")
+                                    
                                 except Exception as e:
                                     st.error(f"❌ Processing failed: {str(e)}")
-                                    logger.error(f"WebRTC processing error: {str(e)}")
-                    
-                # Alternative: File upload as backup
-                st.markdown("---")
-                st.write("**Alternative: Upload Audio File**")
-                uploaded_audio = st.file_uploader(
-                    "Upload audio file (WAV/MP3)", 
-                    type=['wav', 'mp3', 'ogg'],
-                    help="Upload a recorded audio file if live recording doesn't work"
-                )
                 
-                if uploaded_audio is not None:
-                    # Save uploaded file
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-                        tmp_file.write(uploaded_audio.read())
-                        audio_file_path = tmp_file.name
+                # Reset button
+                if st.session_state.recording_state != "idle":
+                    if st.button("🔄 Reset Recording", type="secondary"):
+                        st.session_state.recording_state = "idle"
+                        st.session_state.recorded_audio_path = None
+                        st.rerun()
+                
+                # Enhanced Browser Recording with JavaScript
+                if st.session_state.recording_state == "recording":
+                    st.components.v1.html("""
+                    <script>
+                    let mediaRecorder;
+                    let audioChunks = [];
                     
-                    if st.button("🎯 Process Uploaded Audio", type="primary"):
-                        with st.spinner("🔄 Processing uploaded audio..."):
-                            # Process with enhanced pipeline
-                            text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                process_voice_input_enhanced(audio_file_path)
-                            )
+                    async function startRecording() {
+                        try {
+                            const stream = await navigator.mediaDevices.getUserMedia({
+                                audio: {
+                                    echoCancellation: true,
+                                    noiseSuppression: true,
+                                    autoGainControl: true,
+                                    sampleRate: 16000
+                                }
+                            });
                             
-                            # Store results
-                            if text:
-                                st.session_state.last_text_input = text
-                            st.session_state.last_audio_output = audio_path
+                            mediaRecorder = new MediaRecorder(stream);
+                            audioChunks = [];
                             
-                            # Show results
-                            total_latency = stt_latency + llm_latency + tts_latency
-                            st.success(f"✅ Audio processed in {total_latency:.2f} seconds")
+                            mediaRecorder.ondataavailable = event => {
+                                audioChunks.push(event.data);
+                            };
                             
-                            # Clean up
-                            os.unlink(audio_file_path)
+                            mediaRecorder.onstop = () => {
+                                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                                const audioUrl = URL.createObjectURL(audioBlob);
+                                
+                                // Send to Streamlit (you'll need to handle this)
+                                const formData = new FormData();
+                                formData.append('audio', audioBlob, 'recording.wav');
+                                
+                                // For now, just store locally
+                                window.recordedAudio = audioBlob;
+                            };
+                            
+                            mediaRecorder.start();
+                            console.log("Recording started");
+                        } catch (err) {
+                            console.error("Error starting recording:", err);
+                        }
+                    }
+                    
+                    function stopRecording() {
+                        if (mediaRecorder && mediaRecorder.state === 'recording') {
+                            mediaRecorder.stop();
+                            mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                            console.log("Recording stopped");
+                        }
+                    }
+                    
+                    // Auto-start recording when this script loads
+                    startRecording();
+                    
+                    // Listen for when to stop (you can trigger this from Streamlit)
+                    window.addEventListener('message', function(event) {
+                        if (event.data === 'stop_recording') {
+                            stopRecording();
+                        }
+                    });
+                    </script>
+                    <div style="text-align: center; padding: 20px;">
+                        <h3 style="color: red;">🔴 RECORDING IN PROGRESS</h3>
+                        <p>Speak clearly in Czech or German...</p>
+                    </div>
+                    """, height=150)
     with col2:
         st.header("Output")
         
