@@ -735,6 +735,486 @@ def process_uploaded_audio_enhanced(uploaded_file):
             
     except Exception as e:
         st.error(f"Upload processing error: {str(e)}")
+        
+# Enhanced voice processing functions to fix transcription issues
+# Add these functions to your tutor_app.py file
+
+import streamlit.components.v1 as components
+import time
+import asyncio
+import tempfile
+import os
+import base64
+
+def create_enhanced_audio_recorder_component():
+    """Enhanced HTML5 audio recorder with automatic processing"""
+    html_code = """
+    <div style="padding: 20px; border: 2px solid #ff4b4b; border-radius: 10px; text-align: center; background-color: #f0f2f6;">
+        <div id="status" style="font-size: 18px; margin-bottom: 15px; font-weight: bold;">🎤 Ready to Record</div>
+        
+        <button id="recordBtn" onclick="toggleRecording()" 
+                style="background: #ff4b4b; color: white; border: none; padding: 15px 30px; 
+                       border-radius: 25px; cursor: pointer; font-size: 16px; font-weight: bold; margin: 5px;">
+            🔴 START RECORDING
+        </button>
+        
+        <button id="previewBtn" onclick="playPreview()" disabled
+                style="background: #00cc88; color: white; border: none; padding: 15px 30px; 
+                       border-radius: 25px; cursor: pointer; font-size: 16px; font-weight: bold; margin: 5px;">
+            🔊 PREVIEW YOUR VOICE
+        </button>
+        
+        <div id="processingStatus" style="font-size: 16px; margin: 10px 0; color: #666; display: none;">
+            ⚡ Auto-processing your voice...
+        </div>
+        
+        <div id="timer" style="font-size: 14px; margin-top: 10px; color: #666;">00:00</div>
+        <audio id="audioPreview" controls style="width: 100%; margin-top: 15px; display: none;"></audio>
+        
+        <!-- Hidden elements for data transfer -->
+        <input type="hidden" id="audioDataField" value="" />
+        <input type="hidden" id="processingTriggered" value="false" />
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        let recordingTime = 0;
+        let timerInterval;
+        let recordedBlob = null;
+
+        // Initialize when page loads
+        window.onload = function() {
+            initializeRecorder();
+        };
+
+        async function initializeRecorder() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 16000
+                    } 
+                });
+                
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = function() {
+                    recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    
+                    // Enable preview button
+                    document.getElementById('previewBtn').disabled = false;
+                    
+                    // Create audio URL for preview
+                    const audioUrl = URL.createObjectURL(recordedBlob);
+                    const audioPreview = document.getElementById('audioPreview');
+                    audioPreview.src = audioUrl;
+                    audioPreview.style.display = 'block';
+                    
+                    // AUTOMATIC PROCESSING: Convert to base64 and trigger processing
+                    autoProcessRecording();
+                };
+                
+                document.getElementById('status').innerHTML = '🎤 Microphone Ready - Click START to Record';
+                
+            } catch (error) {
+                document.getElementById('status').innerHTML = '❌ Microphone access denied';
+                console.error('Error accessing microphone:', error);
+            }
+        }
+
+        function toggleRecording() {
+            const recordBtn = document.getElementById('recordBtn');
+            const statusDiv = document.getElementById('status');
+            
+            if (!isRecording) {
+                // Start recording
+                audioChunks = [];
+                recordingTime = 0;
+                isRecording = true;
+                
+                recordBtn.innerHTML = '⏹️ STOP RECORDING';
+                recordBtn.style.background = '#666';
+                statusDiv.innerHTML = '🔴 RECORDING - Speak clearly in Czech or German';
+                
+                // Hide processing status and reset
+                document.getElementById('processingStatus').style.display = 'none';
+                document.getElementById('processingTriggered').value = 'false';
+                document.getElementById('previewBtn').disabled = true;
+                document.getElementById('audioPreview').style.display = 'none';
+                
+                // Start timer
+                timerInterval = setInterval(updateTimer, 1000);
+                
+                // Start recording
+                mediaRecorder.start(1000);
+                
+            } else {
+                // Stop recording
+                isRecording = false;
+                mediaRecorder.stop();
+                
+                recordBtn.innerHTML = '🔄 NEW RECORDING';
+                recordBtn.style.background = '#ff4b4b';
+                
+                statusDiv.innerHTML = '✅ Recording Complete - Processing automatically...';
+                
+                // Stop timer
+                clearInterval(timerInterval);
+            }
+        }
+
+        function updateTimer() {
+            recordingTime++;
+            const minutes = Math.floor(recordingTime / 60);
+            const seconds = recordingTime % 60;
+            document.getElementById('timer').innerHTML = 
+                `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        function playPreview() {
+            const audioPreview = document.getElementById('audioPreview');
+            audioPreview.play();
+            document.getElementById('status').innerHTML = '🔊 Playing Your Recording';
+        }
+
+        async function autoProcessRecording() {
+            if (recordedBlob && document.getElementById('processingTriggered').value === 'false') {
+                // Mark as processing to avoid double-processing
+                document.getElementById('processingTriggered').value = 'true';
+                
+                // Show processing status
+                document.getElementById('processingStatus').style.display = 'block';
+                document.getElementById('status').innerHTML = '⚡ Auto-Processing Your Voice...';
+                
+                // Convert blob to base64
+                const reader = new FileReader();
+                reader.onloadend = function() {
+                    const base64Data = reader.result.split(',')[1];
+                    
+                    // Store in hidden field for Streamlit to access
+                    document.getElementById('audioDataField').value = base64Data;
+                    
+                    // Trigger Streamlit state update
+                    window.parent.postMessage({
+                        type: 'streamlit:setComponentValue',
+                        value: {
+                            audio_data: base64Data,
+                            timestamp: Date.now(),
+                            processing: true
+                        }
+                    }, '*');
+                    
+                    document.getElementById('status').innerHTML = '✅ Voice sent for transcription and response generation!';
+                };
+                reader.readAsDataURL(recordedBlob);
+            }
+        }
+
+        // Reset function for new recording
+        function resetRecorder() {
+            audioChunks = [];
+            recordedBlob = null;
+            recordingTime = 0;
+            isRecording = false;
+            
+            document.getElementById('recordBtn').innerHTML = '🔴 START RECORDING';
+            document.getElementById('recordBtn').style.background = '#ff4b4b';
+            document.getElementById('previewBtn').disabled = true;
+            document.getElementById('audioPreview').style.display = 'none';
+            document.getElementById('processingStatus').style.display = 'none';
+            document.getElementById('status').innerHTML = '🎤 Ready for New Recording';
+            document.getElementById('timer').innerHTML = '00:00';
+            document.getElementById('processingTriggered').value = 'false';
+            
+            clearInterval(timerInterval);
+        }
+    </script>
+    """
+    
+    # Return the component with callback to handle returned data
+    return components.html(html_code, height=350, key="enhanced_audio_recorder")
+
+def handle_auto_voice_processing():
+    """Handle automatic voice processing after recording stops"""
+    
+    # Check if we have new audio data to process
+    if 'audio_processing_queue' not in st.session_state:
+        st.session_state.audio_processing_queue = []
+    
+    if 'last_processed_timestamp' not in st.session_state:
+        st.session_state.last_processed_timestamp = 0
+    
+    # Get audio recorder component data
+    recorder_data = st.session_state.get('enhanced_audio_recorder')
+    
+    if recorder_data and isinstance(recorder_data, dict):
+        audio_data = recorder_data.get('audio_data')
+        timestamp = recorder_data.get('timestamp', 0)
+        processing_flag = recorder_data.get('processing', False)
+        
+        # Only process if we have new data
+        if (audio_data and 
+            timestamp > st.session_state.last_processed_timestamp and 
+            processing_flag):
+            
+            st.session_state.last_processed_timestamp = timestamp
+            
+            # Show processing status
+            with st.spinner("🔄 Transcribing and generating response..."):
+                # Process the audio data
+                success = process_base64_audio_automatically(audio_data)
+                
+                if success:
+                    st.success("✅ Voice processed successfully!")
+                    st.balloons()  # Celebration for successful processing
+                else:
+                    st.error("❌ Error processing voice. Please try again.")
+            
+            # Force refresh to show results
+            st.rerun()
+
+def process_base64_audio_automatically(base64_audio_data):
+    """Process base64 audio data automatically"""
+    try:
+        # Step 1: Convert base64 to audio file
+        st.info("🎧 Converting and enhancing audio...")
+        audio_file_path = convert_base64_to_audio_file(base64_audio_data)
+        
+        if not audio_file_path:
+            st.error("Failed to convert audio data")
+            return False
+        
+        # Step 2: Apply 500% amplification for better transcription
+        st.info("🔊 Applying 500% amplification for clarity...")
+        amplified_path = amplify_recorded_audio(audio_file_path)
+        
+        # Step 3: Process through the enhanced pipeline
+        st.info("⚡ Processing through AI pipeline...")
+        
+        # Run async processing
+        result = asyncio.run(process_enhanced_voice_pipeline(amplified_path))
+        
+        # Step 4: Display results
+        if result:
+            text_input, audio_output, stt_latency, llm_latency, tts_latency = result
+            
+            # Store results for display
+            st.session_state.last_text_input = text_input
+            st.session_state.last_audio_output = audio_output
+            
+            # Show latency info
+            total_latency = stt_latency + llm_latency + tts_latency
+            
+            # Display success message with metrics
+            st.success(f"""
+            ✅ **Voice Processing Complete!**
+            
+            🎯 **Transcribed:** {text_input}
+            
+            ⏱️ **Performance:**
+            - Speech-to-Text: {stt_latency:.2f}s
+            - AI Response: {llm_latency:.2f}s  
+            - Text-to-Speech: {tts_latency:.2f}s
+            - **Total Time: {total_latency:.2f}s**
+            """)
+            
+            return True
+        else:
+            st.error("❌ Failed to process voice through AI pipeline")
+            return False
+        
+    except Exception as e:
+        st.error(f"❌ Error in automatic processing: {str(e)}")
+        logger.error(f"Automatic processing error: {str(e)}")
+        return False
+    
+    finally:
+        # Clean up temporary files
+        try:
+            if 'audio_file_path' in locals() and os.path.exists(audio_file_path):
+                os.unlink(audio_file_path)
+            if 'amplified_path' in locals() and amplified_path != audio_file_path and os.path.exists(amplified_path):
+                os.unlink(amplified_path)
+        except:
+            pass
+
+def convert_base64_to_audio_file(base64_data):
+    """Convert base64 audio data to temporary file"""
+    try:
+        # Decode base64 data
+        audio_bytes = base64.b64decode(base64_data)
+        
+        # Save to temporary file
+        temp_path = tempfile.mktemp(suffix=".webm")
+        with open(temp_path, "wb") as f:
+            f.write(audio_bytes)
+        
+        # Convert webm to wav for better processing
+        wav_path = convert_webm_to_wav(temp_path)
+        
+        # Clean up webm file
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        
+        return wav_path
+        
+    except Exception as e:
+        logger.error(f"Base64 conversion error: {str(e)}")
+        return None
+
+async def process_enhanced_voice_pipeline(audio_file_path):
+    """Process voice through the enhanced pipeline with better error handling"""
+    try:
+        # Use the existing enhanced processing function
+        result = await process_voice_input_pronunciation_enhanced(audio_file_path)
+        
+        if result and len(result) == 5:
+            text_input, audio_output, stt_latency, llm_latency, tts_latency = result
+            
+            if text_input and text_input.strip():
+                return result
+            else:
+                logger.error("No text transcribed from audio")
+                return None
+        else:
+            logger.error("Invalid result from voice processing pipeline")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Enhanced voice pipeline error: {str(e)}")
+        return None
+
+def display_voice_results():
+    """Display both preview and generated audio results"""
+    
+    # Display transcribed text
+    if hasattr(st.session_state, 'last_text_input') and st.session_state.last_text_input:
+        st.subheader("📝 What You Said:")
+        st.info(st.session_state.last_text_input)
+    
+    # Display AI response text
+    if (hasattr(st.session_state, 'conversation_history') and 
+        st.session_state.conversation_history):
+        
+        last_exchange = st.session_state.conversation_history[-1]
+        if 'assistant_response' in last_exchange:
+            st.subheader("🤖 AI Tutor Response:")
+            st.success(last_exchange['assistant_response'])
+    
+    # Display generated audio
+    if hasattr(st.session_state, 'last_audio_output') and st.session_state.last_audio_output:
+        st.subheader("🔊 AI Generated Speech:")
+        
+        # Display audio player
+        audio_bytes = display_audio(st.session_state.last_audio_output, autoplay=True)
+        
+        if audio_bytes:
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                st.download_button(
+                    label="💾 Download AI Response",
+                    data=audio_bytes,
+                    file_name="ai_tutor_response.mp3",
+                    mime="audio/mp3"
+                )
+            with col2:
+                if st.button("🔄 Clear Results"):
+                    # Clear results for new recording
+                    if hasattr(st.session_state, 'last_text_input'):
+                        del st.session_state.last_text_input
+                    if hasattr(st.session_state, 'last_audio_output'):
+                        del st.session_state.last_audio_output
+                    st.rerun()
+
+# ENHANCED MAIN UI FUNCTION - Replace the voice input section in your main() function
+
+def enhanced_voice_input_section():
+    """Enhanced voice input section with automatic processing"""
+    
+    st.subheader("🎤 Professional Voice Recording")
+    
+    # Check API keys
+    keys_set = (
+        st.session_state.elevenlabs_api_key and 
+        st.session_state.openai_api_key
+    )
+    
+    if not keys_set:
+        st.warning("⚠️ Please set both API keys in the sidebar first")
+        return
+    
+    # Instructions
+    st.info("""
+    **🎯 Automatic Voice Processing:**
+    1. 🔴 Click START RECORDING and speak clearly in Czech/German
+    2. ⏹️ Click STOP when finished  
+    3. 🎧 Your voice will be processed automatically
+    4. 🔊 Listen to both your recording and AI response
+    
+    **✅ Features:** 500% amplification, automatic transcription, instant AI response
+    """)
+    
+    # Enhanced audio recorder
+    create_enhanced_audio_recorder_component()
+    
+    # Handle automatic processing
+    handle_auto_voice_processing()
+    
+    # Display results
+    display_voice_results()
+    
+    # Alternative upload for testing
+    st.markdown("---")
+    st.write("**📁 Alternative: Upload Audio File for Testing**")
+    
+    uploaded_file = st.file_uploader(
+        "Upload audio file", 
+        type=['wav', 'mp3', 'webm', 'ogg'],
+        key="manual_upload_test"
+    )
+    
+    if uploaded_file:
+        if st.button("🔄 Process Uploaded File", type="secondary"):
+            with st.spinner("Processing uploaded audio..."):
+                # Process uploaded file
+                temp_path = tempfile.mktemp(suffix=".wav")
+                with open(temp_path, "wb") as f:
+                    f.write(uploaded_file.read())
+                
+                # Apply amplification
+                amplified_path = amplify_recorded_audio(temp_path)
+                
+                # Process
+                result = asyncio.run(process_enhanced_voice_pipeline(amplified_path))
+                
+                if result:
+                    text_input, audio_output, stt_latency, llm_latency, tts_latency = result
+                    st.session_state.last_text_input = text_input
+                    st.session_state.last_audio_output = audio_output
+                    
+                    total_latency = stt_latency + llm_latency + tts_latency
+                    st.success(f"✅ Upload processed in {total_latency:.2f}s")
+                    st.rerun()
+                
+                # Clean up
+                try:
+                    os.unlink(temp_path)
+                    if amplified_path != temp_path:
+                        os.unlink(amplified_path)
+                except:
+                    pass
 # ----------------------------------------------------------------------------------
 # SPEECH RECOGNITION (STT) SECTION - IMPROVED FOR BETTER ACCURACY
 # ----------------------------------------------------------------------------------
@@ -2573,8 +3053,10 @@ def encode_audio_to_base64(audio_path):
 
 
 
+# REPLACE the voice input section in your main() function with this enhanced version
+
 def main():
-    """Main application entry point"""
+    """Main application entry point - UPDATED VERSION"""
     # Page configuration - ONLY ONCE!
     st.set_page_config(
         page_title="Multilingual AI Voice Tutor",
@@ -2583,18 +3065,24 @@ def main():
     )
     
     # Application title
-    st.title("Multilingual AI Voice Tutor")
-    st.subheader("Proof-of-Concept for Czech ↔ German Language Switching")
+    st.title("🎙️ Multilingual AI Voice Tutor")
+    st.subheader("Advanced Czech ↔ German Language Switching with Auto-Processing")
     
     # Status area for progress updates
     if 'status_area' not in st.session_state:
         st.session_state.status_area = st.empty()
     
-    # Sidebar for configuration
+    # Initialize session state for auto-processing
+    if 'audio_processing_queue' not in st.session_state:
+        st.session_state.audio_processing_queue = []
+    if 'last_processed_timestamp' not in st.session_state:
+        st.session_state.last_processed_timestamp = 0
+    
+    # Sidebar configuration (keep your existing sidebar code here)
     with st.sidebar:
         st.header("Configuration")
         
-        # API keys
+        # API keys section
         st.subheader("API Keys")
         
         elevenlabs_key = st.text_input(
@@ -2611,182 +3099,45 @@ def main():
             help="Required for speech recognition and language understanding"
         )
         
-        if st.button("Save API Keys"):
+        if st.button("💾 Save API Keys"):
             st.session_state.elevenlabs_api_key = elevenlabs_key
             st.session_state.openai_api_key = openai_key
             st.session_state.api_keys_initialized = True
-            st.success("API keys saved successfully!")
+            st.success("✅ API keys saved successfully!")
         
-        # Voice selection
-        st.subheader("Voice Settings")
-        
-        if st.button("Fetch Available Voices"):
-            if st.session_state.elevenlabs_api_key:
-                with st.spinner("Fetching voices..."):
-                    voices = get_voices()
-                    
-                    if voices:
-                        st.session_state.voices = voices
-                        st.success(f"Found {len(voices)} voices")
-            else:
-                st.warning("Please set your ElevenLabs API key first")
-        
-        if 'voices' in st.session_state and st.session_state.voices:
-            voice_options = {voice["name"]: voice["voice_id"] for voice in st.session_state.voices}
-            selected_voice_name = st.selectbox(
-                "Select Voice", 
-                options=list(voice_options.keys())
-            )
-            
-            if selected_voice_name:
-                st.session_state.elevenlabs_voice_id = voice_options[selected_voice_name]
-                st.success(f"Selected voice: {selected_voice_name}")
-        
-        # NEW: Language Response Options
-        st.subheader("Response Language")
- 
-        # Choose response language
-        response_language = st.radio(
-            "Response Language",
-            options=["auto", "both", "cs", "de"],
-            format_func=lambda x: {
-                "auto": "Auto Voice Over", 
-                "both": "Both Languages", 
-                "cs": "Czech Only", 
-                "de": "German Only"
-            }[x]
-        )
-        if response_language != st.session_state.response_language:
-            st.session_state.response_language = response_language
-            st.success(f"Response language set to: {response_language}")
-        
-        # Language distribution (only shown when "both" is selected)
-        if response_language == "both":
-            st.subheader("Language Distribution")
-            
-            # Czech percentage slider
-            cs_percent = st.slider("Czech %", min_value=0, max_value=100, value=st.session_state.language_distribution["cs"])
-            
-            # Calculate German percentage automatically
-            de_percent = 100 - cs_percent
-            
-            # Display German percentage
-            st.text(f"German %: {de_percent}")
-            
-            # Update language distribution if changed
-            if cs_percent != st.session_state.language_distribution["cs"]:
-                st.session_state.language_distribution = {
-                    "cs": cs_percent,
-                    "de": de_percent
-                }
-                st.success(f"Language distribution updated: {cs_percent}% Czech, {de_percent}% German")
-        
-        # Speech recognition model
-        st.subheader("Speech Recognition")
-        
-        whisper_model = st.selectbox(
-            "Whisper Model",
-            options=["tiny", "base", "small", "medium", "large"],
-            index=["tiny", "base", "small", "medium", "large"].index(st.session_state.whisper_model) 
-            if st.session_state.whisper_model in ["tiny", "base", "small", "medium", "large"] 
-            else 1
-        )
-        
-        if whisper_model != st.session_state.whisper_model:
-            st.session_state.whisper_model = whisper_model
-            st.session_state.whisper_local_model = None
-            st.success(f"Changed Whisper model to {whisper_model}")
-        
-        # Accent improvement explanation
-        st.header("Accent Improvement")
-        st.info("""
-        This system includes optimizations to eliminate accent interference:
-        
-        1. Language-specific voice settings
-        2. Micro-pauses between language switches
-        3. Voice context reset when switching languages
-        
-        These improvements ensure Czech sounds truly Czech and German sounds truly German.
-        """)
-        
-        # Performance recommendations for low latency
-        st.header("Latency Optimization")
-        
-        avg_total = calculate_average_latency(st.session_state.performance_metrics["total_latency"])
-        
-        if avg_total > 3.0:
-            st.warning("""
-            ### Hardware Recommendations for Lower Latency
-            
-            To achieve the target latency of under 3 seconds:
-            
-            1. Use a dedicated server with:
-               - NVIDIA GPU (T4 or better)
-               - 16+ GB RAM
-               - SSD storage
-               
-            2. Run Whisper on GPU acceleration
-            
-            3. Consider a business plan for ElevenLabs
-               for higher priority API access
-            """)
-        
-        # Performance metrics
-        st.header("Performance")
-        
-        avg_stt = calculate_average_latency(st.session_state.performance_metrics["stt_latency"])
-        avg_llm = calculate_average_latency(st.session_state.performance_metrics["llm_latency"])
-        avg_tts = calculate_average_latency(st.session_state.performance_metrics["tts_latency"])
-        avg_total = calculate_average_latency(st.session_state.performance_metrics["total_latency"])
-        
-        st.metric("Avg. STT Latency", f"{avg_stt:.2f}s")
-        st.metric("Avg. LLM Latency", f"{avg_llm:.2f}s")
-        st.metric("Avg. TTS Latency", f"{avg_tts:.2f}s")
-        st.metric("Avg. Total Latency", f"{avg_total:.2f}s")
-        
-        # API calls
-        st.subheader("API Usage")
-        st.text(f"Whisper API calls: {st.session_state.performance_metrics['api_calls']['whisper']}")
-        st.text(f"OpenAI API calls: {st.session_state.performance_metrics['api_calls']['openai']}")
-        st.text(f"ElevenLabs API calls: {st.session_state.performance_metrics['api_calls']['elevenlabs']}")
+        # Rest of your sidebar configuration...
+        # (Keep all your existing sidebar code - voice settings, language preferences, etc.)
     
-    # Main interaction area
+    # MAIN INTERACTION AREA - UPDATED
     col1, col2 = st.columns([2, 3])
     
     with col1:
-        st.header("Input")
+        st.header("🎯 Input")
         
         # Input type selection
-        input_type = st.radio("Select Input Type", ["Text", "Voice"], horizontal=True)
+        input_type = st.radio(
+            "Select Input Method", 
+            ["🎤 Voice Input", "📝 Text Input"], 
+            horizontal=True
+        )
         
-        if input_type == "Text":
-            # Text input
+        if input_type == "📝 Text Input":
+            # Text input section (keep your existing text input code)
             st.subheader("Text Input")
             st.write("Use [cs] to mark Czech text and [de] to mark German text.")
             
-            # Demo preset examples
+            # Demo scenarios (keep your existing demo examples)
             demo_scenarios = {
                 "Basic Greetings": (
                     "[de] Guten Tag! Wie geht es Ihnen heute? [cs] Dobrý den! Jak se dnes máte?"
                 ),
-                "Language Learning Conversation": (
-                    "[de] Ich lerne jetzt Deutsch und Tschechisch. Es ist manchmal schwierig, aber ich mache Fortschritte. "
-                    "[cs] Učím se německy a česky. Někdy je to těžké, ale dělám pokroky."
-                ),
-                "Travel Planning": (
-                    "[cs] Rád bych navštívil Prahu a potom Berlín. [de] Können Sie mir Sehenswürdigkeiten in beiden Städten empfehlen?"
-                ),
-                "Business Meeting": (
-                    "[de] Willkommen zu unserem Meeting. Heute besprechen wir das neue Projekt. "
-                    "[cs] Máme několik bodů k projednání. Začněme s rozpočtem."
+                "Language Learning": (
+                    "[de] Ich lerne jetzt Deutsch und Tschechisch. [cs] Učím se německy a česky."
                 ),
                 "Custom Input": ""
             }
             
-            selected_scenario = st.selectbox(
-                "Demo Examples", 
-                options=list(demo_scenarios.keys())
-            )
+            selected_scenario = st.selectbox("Demo Examples", options=list(demo_scenarios.keys()))
             
             text_input = st.text_area(
                 "Edit or enter new text",
@@ -2794,169 +3145,162 @@ def main():
                 height=150
             )
             
-            text_process_button = st.button("Process Text", type="primary")
-            
-            if text_process_button and text_input:
-                with st.spinner("Processing text input..."):
-                    # Process the text input
-                    audio_path, llm_latency, tts_latency = asyncio.run(process_text_input(text_input))
-                    
-                    # Store for display in the output section
-                    st.session_state.last_text_input = text_input
-                    st.session_state.last_audio_output = audio_path
-                    
-                    # Show latency metrics
-                    total_latency = llm_latency + tts_latency
-                    st.success(f"Text processed in {total_latency:.2f} seconds")
+            if st.button("🔄 Process Text", type="primary"):
+                if text_input:
+                    with st.spinner("Processing text input..."):
+                        audio_path, llm_latency, tts_latency = asyncio.run(process_text_input(text_input))
+                        st.session_state.last_text_input = text_input
+                        st.session_state.last_audio_output = audio_path
+                        total_latency = llm_latency + tts_latency
+                        st.success(f"✅ Text processed in {total_latency:.2f} seconds")
+                        st.rerun()
         
         else:
-            # Voice input - HTML5 AUDIO RECORDER (RELIABLE)
-            st.subheader("🎤 Professional Voice Recording")
-            
-            # Check if API keys are set
-            keys_set = (
-                st.session_state.elevenlabs_api_key and 
-                st.session_state.openai_api_key
-            )
-
-            if not keys_set:
-                st.warning("Please set both API keys in the sidebar first")
-            else:
-                st.write("🎯 **HTML5 Audio Recording** - Works reliably on Railway")
-                
-                # Initialize session state for HTML5 recording
-                if 'html5_audio_data' not in st.session_state:
-                    st.session_state.html5_audio_data = None
-                if 'html5_processing' not in st.session_state:
-                    st.session_state.html5_processing = False
-                
-                # Create the HTML5 audio recorder component
-                create_audio_recorder_component()
-                
-                # Check for audio data (this would be set via JavaScript messaging)
-                # For now, we'll use a manual approach with file upload as backup
-                
-                st.markdown("---")
-                
-                # Manual processing section
-                st.write("**Manual Processing Controls:**")
-                
-                col1, col2 = st.columns([1, 1])
-                
-                with col1:
-                    # Alternative: Direct file upload for testing
-                    uploaded_audio = st.file_uploader(
-                        "🎯 Upload Recorded Audio (Testing)", 
-                        type=['wav', 'mp3', 'webm', 'ogg'],
-                        help="Upload your recorded audio file for processing",
-                        key="html5_upload"
-                    )
-                
-                with col2:
-                    if uploaded_audio is not None:
-                        if st.button("⚡ **PROCESS UPLOADED AUDIO**", type="primary", key="process_html5_upload"):
-                            with st.spinner("🔄 Processing HTML5 audio..."):
-                                # Save uploaded file
-                                temp_path = tempfile.mktemp(suffix=".wav")
-                                with open(temp_path, "wb") as f:
-                                    f.write(uploaded_audio.read())
-                                
-                                # Apply amplification
-                                amplified_path = amplify_recorded_audio(temp_path)
-                                
-                                # Process through enhanced pipeline
-                                success = asyncio.run(process_html5_recorded_voice(amplified_path))
-                                
-                                # Clean up
-                                if os.path.exists(temp_path):
-                                    os.unlink(temp_path)
-                                if amplified_path != temp_path and os.path.exists(amplified_path):
-                                    os.unlink(amplified_path)
-                
-                # Enhanced instructions
-                st.info("""
-                **How to Use:**
-                1. 🔴 Click START RECORDING and speak clearly
-                2. ⏹️ Click STOP when finished  
-                3. 🔊 Click PREVIEW to hear your recording
-                4. ⚡ Click PROCESS to transcribe and generate response
-                
-                **For Testing:** Use the upload option below the recorder
-                """)
-                
-                # Browser compatibility note
-                st.success("""
-                ✅ **HTML5 Audio Features:**
-                - Works in all modern browsers
-                - No WebRTC issues on Railway
-                - 500% audio amplification  
-                - Czech/German pronunciation focus
-                - Reliable production deployment
-                """)
+            # ENHANCED VOICE INPUT SECTION
+            enhanced_voice_input_section()
+    
     with col2:
-        st.header("Output")
+        st.header("📊 Output & Results")
         
-        # Transcribed text
-        if 'last_text_input' in st.session_state and st.session_state.last_text_input:
-            st.subheader("Transcribed/Input Text")
-            st.text_area(
-                "Text with language markers",
-                value=st.session_state.last_text_input,
-                height=100,
-                disabled=True
-            )
+        # Check if we have any results to display
+        has_text_result = hasattr(st.session_state, 'last_text_input') and st.session_state.last_text_input
+        has_conversation = hasattr(st.session_state, 'conversation_history') and st.session_state.conversation_history
+        has_audio_result = hasattr(st.session_state, 'last_audio_output') and st.session_state.last_audio_output
         
-        # Generated response
-        if 'conversation_history' in st.session_state and st.session_state.conversation_history:
-            last_exchange = st.session_state.conversation_history[-1]
+        if has_text_result or has_conversation or has_audio_result:
             
-            if 'assistant_response' in last_exchange:
-                st.subheader("AI Tutor Response")
+            # Transcribed/Input text
+            if has_text_result:
+                st.subheader("📝 Input Text")
                 st.text_area(
-                    "Response text",
-                    value=last_exchange['assistant_response'],
-                    height=150,
-                    disabled=True
+                    "Your input with language markers",
+                    value=st.session_state.last_text_input,
+                    height=100,
+                    disabled=True,
+                    key="display_input_text"
                 )
+            
+            # AI Generated response text
+            if has_conversation:
+                last_exchange = st.session_state.conversation_history[-1]
+                if 'assistant_response' in last_exchange:
+                    st.subheader("🤖 AI Tutor Response")
+                    st.text_area(
+                        "Generated response text",
+                        value=last_exchange['assistant_response'],
+                        height=120,
+                        disabled=True,
+                        key="display_response_text"
+                    )
+            
+            # Generated audio
+            if has_audio_result:
+                st.subheader("🔊 Generated Speech")
+                
+                # Display audio player
+                audio_bytes = display_audio(st.session_state.last_audio_output, autoplay=False)
+                
+                if audio_bytes:
+                    # Action buttons
+                    col_a, col_b, col_c = st.columns([1, 1, 1])
+                    
+                    with col_a:
+                        st.download_button(
+                            label="💾 Download Audio",
+                            data=audio_bytes,
+                            file_name="multilingual_tutor_response.mp3",
+                            mime="audio/mp3"
+                        )
+                    
+                    with col_b:
+                        if st.button("▶️ Play Audio"):
+                            st.audio(audio_bytes, format="audio/mp3", autoplay=True)
+                    
+                    with col_c:
+                        if st.button("🗑️ Clear Results"):
+                            # Clear all results
+                            for key in ['last_text_input', 'last_audio_output']:
+                                if hasattr(st.session_state, key):
+                                    delattr(st.session_state, key)
+                            st.rerun()
+            
+            # Performance metrics for last processing
+            if has_conversation:
+                last_exchange = st.session_state.conversation_history[-1]
+                latency = last_exchange.get('latency', {})
+                
+                st.subheader("⚡ Performance Metrics")
+                
+                col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+                
+                with col_p1:
+                    st.metric("STT", f"{latency.get('stt', 0):.2f}s")
+                with col_p2:
+                    st.metric("LLM", f"{latency.get('llm', 0):.2f}s")
+                with col_p3:
+                    st.metric("TTS", f"{latency.get('tts', 0):.2f}s")
+                with col_p4:
+                    st.metric("Total", f"{latency.get('total', 0):.2f}s")
         
-        # Generated audio
-        if 'last_audio_output' in st.session_state and st.session_state.last_audio_output:
-            st.subheader("Generated Speech")
+        else:
+            # No results yet - show instructions
+            st.info("""
+            **🎯 Ready for Voice or Text Input!**
             
-            # Display audio with player
-            audio_bytes = display_audio(st.session_state.last_audio_output, autoplay=True)
+            **Voice Mode:**
+            1. Click START RECORDING
+            2. Speak in Czech or German  
+            3. Click STOP (auto-processing begins)
+            4. Listen to your recording and AI response
             
-            if audio_bytes:
-                # Download button
-                st.download_button(
-                    label="Download Audio",
-                    data=audio_bytes,
-                    file_name="multilingual_tutor_response.mp3",
-                    mime="audio/mp3"
-                )
+            **Text Mode:**
+            - Use [cs] and [de] markers for language switching
+            - Click Process Text for AI response
+            
+            **Results will appear here after processing!**
+            """)
     
-    # Conversation history
+    # Conversation History Section
     if st.session_state.conversation_history:
-        st.header("Conversation History")
+        st.markdown("---")
+        st.header("📚 Conversation History")
         
-        for i, exchange in enumerate(st.session_state.conversation_history[-5:]):  # Show last 5 exchanges
-            with st.expander(f"Exchange {i+1} - {exchange.get('timestamp', 'Unknown time')[:19]}"):
-                st.markdown("**User:**")
-                st.text(exchange.get('user_input', 'No input'))
+        # Show recent conversations
+        recent_conversations = st.session_state.conversation_history[-3:]  # Last 3
+        
+        for i, exchange in enumerate(reversed(recent_conversations)):
+            with st.expander(f"💬 Exchange {len(recent_conversations)-i} - {exchange.get('timestamp', 'Unknown')[:19]}"):
                 
-                st.markdown("**AI Tutor:**")
-                st.text(exchange.get('assistant_response', 'No response'))
+                # User input
+                st.markdown("**👤 You said:**")
+                st.code(exchange.get('user_input', 'No input'), language="text")
                 
-                # Latency info
+                # AI response
+                st.markdown("**🤖 AI Tutor:**")
+                st.code(exchange.get('assistant_response', 'No response'), language="text")
+                
+                # Performance metrics
                 latency = exchange.get('latency', {})
-                st.text(f"STT: {latency.get('stt', 0):.2f}s | LLM: {latency.get('llm', 0):.2f}s | TTS: {latency.get('tts', 0):.2f}s | Total: {latency.get('total', 0):.2f}s")
+                st.caption(f"⏱️ STT: {latency.get('stt', 0):.2f}s | LLM: {latency.get('llm', 0):.2f}s | TTS: {latency.get('tts', 0):.2f}s | Total: {latency.get('total', 0):.2f}s")
     
-    # Status area
-    st.header("Status")
+    # Status and Debug Section
+    st.markdown("---")
+    st.header("🔧 System Status")
+    
+    # API Keys Status
+    col_s1, col_s2 = st.columns([1, 1])
+    
+    with col_s1:
+        st.success("✅ ElevenLabs API" if st.session_state.elevenlabs_api_key else "❌ ElevenLabs API")
+    with col_s2:
+        st.success("✅ OpenAI API" if st.session_state.openai_api_key else "❌ OpenAI API")
+    
+    # Overall system status
+    if st.session_state.elevenlabs_api_key and st.session_state.openai_api_key:
+        st.success("🚀 **System Ready** - Voice processing enabled!")
+    else:
+        st.warning("⚠️ **Setup Required** - Please configure API keys in sidebar")
+    
+    # Processing status area
     st.session_state.status_area = st.empty()
-    
-    # Update status from queue
     update_status()
-
-if __name__ == "__main__":
-    main()
