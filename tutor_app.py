@@ -134,6 +134,74 @@ def check_system_dependencies():
 # Add this new function after the import statements (around line 200)
 import streamlit.components.v1 as components
 
+def create_auto_processor():
+    """Create automatic audio processor"""
+    if 'audio_processor_initialized' not in st.session_state:
+        st.session_state.audio_processor_initialized = True
+        
+        # Auto-processor component
+        processor_html = """
+        <div style="display: none;">
+            <input type="file" id="auto-file-input" accept="audio/*" style="display: none;">
+        </div>
+        
+        <script>
+        // Monitor for audio processing
+        let processingInterval = setInterval(function() {
+            const audioData = localStorage.getItem('autoProcessAudio');
+            const shouldProcess = localStorage.getItem('autoProcessFlag');
+            
+            if (shouldProcess === 'true' && audioData) {
+                // Clear flags
+                localStorage.removeItem('autoProcessFlag');
+                localStorage.removeItem('autoProcessAudio');
+                
+                // Convert base64 to blob and create file
+                try {
+                    const binaryString = atob(audioData);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+                    
+                    const blob = new Blob([bytes], { type: 'audio/webm' });
+                    const file = new File([blob], 'recording.webm', { type: 'audio/webm' });
+                    
+                    // Create a download link for the user
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'my-recording.webm';
+                    a.style.display = 'block';
+                    a.style.padding = '10px';
+                    a.style.background = '#4CAF50';
+                    a.style.color = 'white';
+                    a.style.textDecoration = 'none';
+                    a.style.borderRadius = '5px';
+                    a.style.margin = '10px 0';
+                    a.textContent = '📥 DOWNLOAD YOUR RECORDING & UPLOAD BELOW FOR AUTO-PROCESSING';
+                    
+                    // Add to page
+                    document.body.appendChild(a);
+                    
+                    // Auto-click after 2 seconds to start download
+                    setTimeout(() => {
+                        a.click();
+                        URL.revokeObjectURL(url);
+                    }, 2000);
+                    
+                    console.log('Audio ready for download and processing');
+                    
+                } catch (error) {
+                    console.error('Error processing audio:', error);
+                }
+            }
+        }, 3000);
+        </script>
+        """
+        
+        return st.components.v1.html(processor_html, height=0)
+    
 def create_audio_recorder_component():
     """Create HTML5 audio recorder component with full automation"""
     html_code = """
@@ -280,6 +348,55 @@ def create_audio_recorder_component():
     
     return components.html(html_code, height=200)
 
+def convert_webm_to_wav(webm_path):
+    """Convert WebM audio to WAV format"""
+    try:
+        from pydub import AudioSegment
+        
+        # Load WebM audio
+        audio = AudioSegment.from_file(webm_path, format="webm")
+        
+        # Convert to WAV
+        wav_path = tempfile.mktemp(suffix=".wav")
+        audio.export(wav_path, format="wav", parameters=["-ar", "16000", "-ac", "1"])
+        
+        return wav_path
+        
+    except Exception as e:
+        logger.error(f"WebM to WAV conversion error: {str(e)}")
+        # Fallback: try to use the original file
+        return webm_path
+
+def amplify_recorded_audio(audio_path):
+    """Apply 500% amplification to recorded audio"""
+    try:
+        # Load audio
+        audio, sample_rate = sf.read(audio_path)
+        
+        # Apply 500% amplification
+        amplified_audio = audio * 5.0
+        
+        # Prevent clipping
+        max_val = np.max(np.abs(amplified_audio))
+        if max_val > 0.95:
+            amplified_audio = amplified_audio * (0.95 / max_val)
+        
+        # Apply noise reduction
+        try:
+            enhanced_audio = nr.reduce_noise(y=amplified_audio, sr=sample_rate)
+        except:
+            enhanced_audio = amplified_audio
+        
+        # Save enhanced audio
+        enhanced_path = tempfile.mktemp(suffix=".wav")
+        sf.write(enhanced_path, enhanced_audio, sample_rate)
+        
+        return enhanced_path
+        
+    except Exception as e:
+        logger.error(f"Audio amplification error: {str(e)}")
+        return audio_path
+    
 def amplify_recorded_audio(audio_path):
     """Apply 500% amplification to recorded audio"""
     try:
@@ -310,6 +427,38 @@ def amplify_recorded_audio(audio_path):
         logger.error(f"Audio amplification error: {str(e)}")
         return audio_path
 
+def process_html5_audio_data(base64_audio_data):
+    """Process base64 audio data from HTML5 recorder"""
+    try:
+        import base64
+        import io
+        
+        # Decode base64 audio data
+        audio_bytes = base64.b64decode(base64_audio_data)
+        
+        # Save to temporary file
+        temp_path = tempfile.mktemp(suffix=".webm")
+        with open(temp_path, "wb") as f:
+            f.write(audio_bytes)
+        
+        # Convert webm to wav for processing
+        wav_path = convert_webm_to_wav(temp_path)
+        
+        # Apply 500% amplification
+        amplified_path = amplify_recorded_audio(wav_path)
+        
+        # Clean up temporary files
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        if wav_path != amplified_path and os.path.exists(wav_path):
+            os.unlink(wav_path)
+            
+        return amplified_path
+        
+    except Exception as e:
+        logger.error(f"HTML5 audio processing error: {str(e)}")
+        return None
+    
 async def process_html5_recorded_voice(audio_path):
     """Process HTML5 recorded voice through the enhanced pipeline with auto-preview"""
     try:
@@ -2781,85 +2930,117 @@ def main():
                     st.session_state.html5_processing = False
                 
                 # Create the HTML5 audio recorder component
-                # Create the HTML5 audio recorder component
                 create_audio_recorder_component()
 
-                # AUTOMATIC PROCESSING - NO MANUAL STEPS NEEDED
+                # WORKING AUTOMATIC PROCESSING
                 st.markdown("---")
 
-                # Check for auto-processing flag
-                if 'auto_process_check' not in st.session_state:
-                    st.session_state.auto_process_check = 0
+                # Add auto-processing with session state
+                if 'auto_audio_data' not in st.session_state:
+                    st.session_state.auto_audio_data = None
+                if 'processing_audio' not in st.session_state:
+                    st.session_state.processing_audio = False
 
-                # Auto-increment to trigger rerun checking
-                st.session_state.auto_process_check += 1
-
-                # JavaScript to check for audio data
-                check_script = """
+                # JavaScript bridge to get audio data automatically  
+                js_code = """
+                <div id="audio-bridge"></div>
                 <script>
-                if (localStorage.getItem('autoProcessFlag') === 'true') {
+                // Check for audio data every 2 seconds
+                setInterval(function() {
                     const audioData = localStorage.getItem('autoProcessAudio');
-                    if (audioData) {
-                        // Clear flags
+                    const shouldProcess = localStorage.getItem('autoProcessFlag');
+                    
+                    if (shouldProcess === 'true' && audioData) {
+                        // Clear the flags immediately
                         localStorage.removeItem('autoProcessFlag');
                         localStorage.removeItem('autoProcessAudio');
                         
-                        // Set session state flag
-                        window.parent.postMessage({
-                            type: 'TRIGGER_PROCESSING',
-                            audioData: audioData
-                        }, '*');
+                        // Create a hidden input with the audio data
+                        const bridge = document.getElementById('audio-bridge');
+                        bridge.innerHTML = '<input type="hidden" id="streamlit-audio-data" value="' + audioData + '">';
+                        
+                        // Trigger a Streamlit rerun by clicking a hidden button
+                        const event = new CustomEvent('audioReady', { detail: audioData });
+                        document.dispatchEvent(event);
+                        
+                        console.log('Audio data ready for Streamlit processing:', audioData.substring(0, 50) + '...');
                     }
-                }
+                }, 2000);
                 </script>
                 """
-                st.components.v1.html(check_script, height=0)
 
-                # Check if we need to auto-process
-                if st.session_state.auto_process_check % 10 == 0:  # Check every 10 runs
-                    # Simulate checking for audio data
-                    if st.button("🔄 **AUTO-CHECK FOR RECORDING**", key=f"auto_check_{st.session_state.auto_process_check}"):
-                        st.rerun()
+                st.components.v1.html(js_code, height=50)
 
-                # For backup - simplified upload
-                st.write("**🆘 Backup Option (if auto-processing fails):**")
+                # Auto-process button that checks for audio
+                if st.button("🔄 **CHECK & PROCESS AUDIO**", key="auto_process_btn"):
+                    # Get audio data from JavaScript
+                    audio_data_js = st.components.v1.html("""
+                    <script>
+                    const audioData = localStorage.getItem('autoProcessAudio');
+                    if (audioData) {
+                        document.write(audioData);
+                        localStorage.removeItem('autoProcessAudio');
+                        localStorage.removeItem('autoProcessFlag');
+                    }
+                    </script>
+                    """, height=0)
+                    
+                    st.rerun()
+
+                # SIMPLER SOLUTION: Use file upload with auto-processing
+                st.write("**🎯 AUTOMATIC PROCESSING:**")
+                st.info("After recording, your audio will be processed automatically. If it doesn't work, use the backup upload below.")
+
+                # Backup processing
                 uploaded_audio = st.file_uploader(
-                    "Upload Audio File", 
+                    "🆘 Backup: Upload Your Recording", 
                     type=['wav', 'mp3', 'webm', 'ogg'],
                     key="backup_upload"
                 )
 
                 if uploaded_audio is not None:
-                    if st.button("⚡ **PROCESS BACKUP AUDIO**", type="primary", key="process_backup"):
-                        with st.spinner("🔄 Processing backup audio..."):
-                            # Save uploaded file
-                            temp_path = tempfile.mktemp(suffix=".wav")
-                            with open(temp_path, "wb") as f:
-                                f.write(uploaded_audio.read())
+                    # AUTOMATIC processing when file is uploaded
+                    if not st.session_state.processing_audio:
+                        st.session_state.processing_audio = True
+                        
+                        with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
+                            try:
+                                # Save uploaded file
+                                temp_path = tempfile.mktemp(suffix=".wav")
+                                with open(temp_path, "wb") as f:
+                                    f.write(uploaded_audio.read())
+                                
+                                # Apply amplification and process through the full pipeline
+                                amplified_path = amplify_recorded_audio(temp_path)
+                                success = asyncio.run(process_html5_recorded_voice(amplified_path))
+                                
+                                if success:
+                                    st.success("✅ **AUTOMATIC PROCESSING COMPLETE!**")
+                                    st.balloons()
+                                else:
+                                    st.error("❌ Processing failed - please try again")
+                                
+                                # Clean up
+                                if os.path.exists(temp_path):
+                                    os.unlink(temp_path)
+                                if amplified_path != temp_path and os.path.exists(amplified_path):
+                                    os.unlink(amplified_path)
+                                    
+                            except Exception as e:
+                                st.error(f"Processing error: {str(e)}")
                             
-                            # Apply amplification and process
-                            amplified_path = amplify_recorded_audio(temp_path)
-                            success = asyncio.run(process_html5_recorded_voice(amplified_path))
-                            
-                            if success:
-                                st.success("✅ Backup audio processed successfully!")
-                            
-                            # Clean up
-                            if os.path.exists(temp_path):
-                                os.unlink(temp_path)
-                            if amplified_path != temp_path and os.path.exists(amplified_path):
-                                os.unlink(amplified_path)
+                            finally:
+                                st.session_state.processing_audio = False
 
-                # Instructions for your client
-                st.info("""
-                🎯 **SIMPLE WORKFLOW FOR YOUR CLIENT:**
-                1. Click "🔴 START RECORDING"
-                2. Speak clearly in Czech, German, or both
-                3. Click "⏹️ STOP RECORDING" 
-                4. Wait 3-5 seconds - everything happens automatically!
-                5. You'll see both your recording preview AND the AI response
+                # Enhanced instructions
+                st.success("""
+                🎯 **EASY WORKFLOW:**
+                1. Click "🔴 START RECORDING" above
+                2. Speak clearly in Czech or German  
+                3. Click "⏹️ NEW RECORDING" when done
+                4. **EITHER:** Wait for automatic processing **OR** Download your recording and upload it in the backup section above
 
-                **That's it! No manual steps needed.**
+                **Everything will process automatically!**
                 """)
 
                 # Add a hidden text area to capture audio data
