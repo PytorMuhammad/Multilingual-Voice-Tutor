@@ -1,0 +1,46 @@
+#audio-recorder {
+    padding: 20px;
+    border: 2px solid #ff4b4b;
+    border-radius: 10px;
+    text-align: center;
+    background-color: #f0f2f6;
+    font-family: sans-serif;
+}
+
+#status {
+    font-size: 18px;
+    margin-bottom: 15px;
+    font-weight: bold;
+}
+
+#recordBtn {
+    background: #ff4b4b;
+    color: white;
+    border: none;
+    padding: 15px 30px;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    margin: 5px;
+}
+
+#recordBtn:hover {
+    background: #e63946;
+}
+
+#recordBtn.recording {
+    background: #666;
+}
+
+#timer {
+    font-size: 14px;
+    margin-top: 10px;
+    color: #666;
+}
+
+#processing {
+    margin-top: 15px;
+    color: #28a745;
+    font-weight: bold;
+}
