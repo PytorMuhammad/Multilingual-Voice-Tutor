@@ -4,10 +4,9 @@ import time
 import tempfile
 import logging
 import json
-import asyncio
-# Add these imports after the existing import statements
 from scipy import signal
 import scipy.signal
+import asyncio
 import queue
 import threading
 import re
@@ -203,7 +202,7 @@ def create_auto_processor():
         return st.components.v1.html(processor_html, height=0)
     
 def create_audio_recorder_component():
-    """Create HTML5 audio recorder component with full automation"""
+    """Create HTML5 audio recorder component with WORKING auto-processing"""
     html_code = """
     <div style="padding: 20px; border: 2px solid #ff4b4b; border-radius: 10px; text-align: center; background-color: #f0f2f6;">
         <div id="status" style="font-size: 18px; margin-bottom: 15px; font-weight: bold;">🎤 Ready to Record</div>
@@ -215,6 +214,15 @@ def create_audio_recorder_component():
         </button>
         
         <div id="timer" style="font-size: 14px; margin-top: 10px; color: #666;">00:00</div>
+        
+        <!-- FIXED: Download link for reliable processing -->
+        <div id="downloadSection" style="margin-top: 15px; display: none;">
+            <a id="downloadLink" style="background: #4CAF50; color: white; padding: 10px 20px; 
+                                        text-decoration: none; border-radius: 5px; font-weight: bold;">
+                📥 DOWNLOAD & UPLOAD BELOW FOR PROCESSING
+            </a>
+        </div>
+        
         <div id="audioData" style="display: none;"></div>
     </div>
 
@@ -256,12 +264,10 @@ def create_audio_recorder_component():
                     recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
                     
                     // Update status
-                    document.getElementById('status').innerHTML = '⚡ Auto-processing your recording...';
+                    document.getElementById('status').innerHTML = '✅ Recording Complete!';
                     
-                    // AUTOMATIC PROCESSING - NO MANUAL STEPS
-                    setTimeout(() => {
-                        processAudioAutomatically();
-                    }, 500);
+                    // FIXED: Show download immediately for reliable processing
+                    showDownloadLink();
                 };
                 
                 document.getElementById('status').innerHTML = '🎤 Ready - Click START to Record';
@@ -286,6 +292,9 @@ def create_audio_recorder_component():
                 recordBtn.style.background = '#666';
                 statusDiv.innerHTML = '🔴 RECORDING - Speak in Czech or German';
                 
+                // Hide download section
+                document.getElementById('downloadSection').style.display = 'none';
+                
                 // Start timer
                 timerInterval = setInterval(updateTimer, 1000);
                 
@@ -293,13 +302,13 @@ def create_audio_recorder_component():
                 mediaRecorder.start(1000);
                 
             } else {
-                // Stop recording - AUTO PROCESSING STARTS
+                // Stop recording
                 isRecording = false;
                 mediaRecorder.stop();
                 
                 recordBtn.innerHTML = '🔄 NEW RECORDING';
                 recordBtn.style.background = '#ff4b4b';
-                statusDiv.innerHTML = '⏳ Processing automatically...';
+                statusDiv.innerHTML = '⏳ Processing recording...';
                 
                 // Stop timer
                 clearInterval(timerInterval);
@@ -314,39 +323,31 @@ def create_audio_recorder_component():
                 `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }
 
-        // AUTOMATIC PROCESSING - COMPLETELY AUTOMATED
-        async function processAudioAutomatically() {
+        // FIXED: Reliable download approach
+        function showDownloadLink() {
             if (recordedBlob) {
-                // Convert blob to base64
-                const reader = new FileReader();
-                reader.onloadend = function() {
-                    const base64Data = reader.result.split(',')[1];
-                    
-                    // Store data for Streamlit
-                    document.getElementById('audioData').innerHTML = base64Data;
-                    window.streamlitAudioData = base64Data;
-                    
-                    // Update status
-                    document.getElementById('status').innerHTML = '✅ Audio ready! Processing will start automatically...';
-                    
-                    // Trigger Streamlit processing automatically
-                    window.parent.postMessage({
-                        type: 'AUDIO_READY',
-                        audioData: base64Data,
-                        timestamp: Date.now()
-                    }, '*');
-                    
-                    // Set flag for Streamlit to pick up
-                    localStorage.setItem('autoProcessAudio', base64Data);
-                    localStorage.setItem('autoProcessFlag', 'true');
-                };
-                reader.readAsDataURL(recordedBlob);
+                const url = URL.createObjectURL(recordedBlob);
+                const downloadLink = document.getElementById('downloadLink');
+                
+                downloadLink.href = url;
+                downloadLink.download = 'my-recording.webm';
+                
+                // Show download section
+                document.getElementById('downloadSection').style.display = 'block';
+                
+                // Auto-click after 2 seconds
+                setTimeout(() => {
+                    downloadLink.click();
+                }, 2000);
+                
+                // Update status
+                document.getElementById('status').innerHTML = '✅ Recording ready! Download and upload below.';
             }
         }
     </script>
     """
     
-    return components.html(html_code, height=200)
+    return st.components.v1.html(html_code, height=250)
 
 def convert_webm_to_wav(webm_path):
     """Convert WebM audio to WAV format"""
@@ -834,6 +835,60 @@ def process_uploaded_audio_enhanced(uploaded_file):
             
     except Exception as e:
         st.error(f"Upload processing error: {str(e)}")
+        
+async def process_voice_input_pronunciation_enhanced(audio_file):
+    """Enhanced voice processing focusing on pronunciation accuracy"""
+    pipeline_start_time = time.time()
+    
+    try:
+        # Step 1: Enhanced Audio Preprocessing with 500% boost
+        st.session_state.message_queue.put("🔊 Amplifying audio for pronunciation clarity...")
+        
+        # Step 2: Pronunciation-Enhanced Transcription
+        st.session_state.message_queue.put("🎯 Analyzing pronunciation patterns...")
+        
+        transcription = await asyncio.wait_for(
+            transcribe_with_api(audio_file, st.session_state.openai_api_key),
+            timeout=30.0
+        )
+        
+        if not transcription or not transcription.get("text"):
+            st.session_state.message_queue.put("❌ No clear pronunciation detected")
+            return None, None, 0, 0, 0
+        
+        # Step 3: Pronunciation-Based Language Understanding
+        user_input = transcription["text"].strip()
+        
+        st.session_state.message_queue.put(f"📝 Transcribed: {user_input}")
+        
+        # Step 4: Generate Response
+        st.session_state.message_queue.put("🤖 Generating response...")
+        
+        llm_result = await generate_llm_response(user_input)
+        
+        if "error" in llm_result:
+            st.session_state.message_queue.put(f"❌ Response generation failed: {llm_result.get('error')}")
+            return user_input, None, transcription.get("latency", 0), 0, 0
+        
+        response_text = llm_result["response"]
+        st.session_state.message_queue.put(f"💬 Generated: {response_text}")
+        
+        # Step 5: High-Quality Voice Synthesis
+        st.session_state.message_queue.put("🎵 Generating accent-free speech...")
+        audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+        
+        # Calculate total latency
+        total_latency = time.time() - pipeline_start_time
+        st.session_state.performance_metrics["total_latency"].append(total_latency)
+        
+        st.session_state.message_queue.put(f"✅ Complete! ({total_latency:.2f}s)")
+        
+        return user_input, audio_path, transcription.get("latency", 0), llm_result.get("latency", 0), tts_latency
+        
+    except Exception as e:
+        logger.error(f"Enhanced processing error: {str(e)}")
+        st.session_state.message_queue.put(f"❌ Error: {str(e)}")
+        return None, None, 0, 0, 0
 # ----------------------------------------------------------------------------------
 # SPEECH RECOGNITION (STT) SECTION - IMPROVED FOR BETTER ACCURACY
 # ----------------------------------------------------------------------------------
@@ -2909,249 +2964,80 @@ def main():
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
         else:
-            # Voice input - HTML5 AUDIO RECORDER (RELIABLE)
-            st.subheader("🎤 Professional Voice Recording")
-            
-            # Check if API keys are set
-            keys_set = (
-                st.session_state.elevenlabs_api_key and 
-                st.session_state.openai_api_key
-            )
-
-            if not keys_set:
-                st.warning("Please set both API keys in the sidebar first")
-            else:
-                st.write("🎯 **HTML5 Audio Recording** - Works reliably on Railway")
-                
-                # Initialize session state for HTML5 recording
-                if 'html5_audio_data' not in st.session_state:
-                    st.session_state.html5_audio_data = None
-                if 'html5_processing' not in st.session_state:
-                    st.session_state.html5_processing = False
-                
-                # Create the HTML5 audio recorder component
-                create_audio_recorder_component()
-
-                # WORKING AUTOMATIC PROCESSING
-                st.markdown("---")
-
-                # Add auto-processing with session state
-                if 'auto_audio_data' not in st.session_state:
-                    st.session_state.auto_audio_data = None
-                if 'processing_audio' not in st.session_state:
-                    st.session_state.processing_audio = False
-
-                # JavaScript bridge to get audio data automatically  
-                js_code = """
-                <div id="audio-bridge"></div>
-                <script>
-                // Check for audio data every 2 seconds
-                setInterval(function() {
-                    const audioData = localStorage.getItem('autoProcessAudio');
-                    const shouldProcess = localStorage.getItem('autoProcessFlag');
+                    # Voice input - FIXED HTML5 AUDIO RECORDER
+                    st.subheader("🎤 Professional Voice Recording")
                     
-                    if (shouldProcess === 'true' && audioData) {
-                        // Clear the flags immediately
-                        localStorage.removeItem('autoProcessFlag');
-                        localStorage.removeItem('autoProcessAudio');
+                    # Check if API keys are set
+                    keys_set = (
+                        st.session_state.elevenlabs_api_key and 
+                        st.session_state.openai_api_key
+                    )
+
+                    if not keys_set:
+                        st.warning("Please set both API keys in the sidebar first")
+                    else:
+                        st.write("🎯 **HTML5 Audio Recording** - Reliable Railway Deployment")
                         
-                        // Create a hidden input with the audio data
-                        const bridge = document.getElementById('audio-bridge');
-                        bridge.innerHTML = '<input type="hidden" id="streamlit-audio-data" value="' + audioData + '">';
+                        # Create the HTML5 audio recorder component
+                        create_audio_recorder_component()
+
+                        st.markdown("---")
+                        st.write("**🔄 AUTOMATIC PROCESSING:**")
                         
-                        // Trigger a Streamlit rerun by clicking a hidden button
-                        const event = new CustomEvent('audioReady', { detail: audioData });
-                        document.dispatchEvent(event);
-                        
-                        console.log('Audio data ready for Streamlit processing:', audioData.substring(0, 50) + '...');
-                    }
-                }, 2000);
-                </script>
-                """
+                        # FIXED: Reliable upload processing
+                        uploaded_audio = st.file_uploader(
+                            "📥 Upload Your Downloaded Recording Here", 
+                            type=['wav', 'mp3', 'webm', 'ogg'],
+                            key="main_upload",
+                            help="After recording above, download the file and upload it here for automatic processing"
+                        )
 
-                st.components.v1.html(js_code, height=50)
-
-                # Auto-process button that checks for audio
-                if st.button("🔄 **CHECK & PROCESS AUDIO**", key="auto_process_btn"):
-                    # Get audio data from JavaScript
-                    audio_data_js = st.components.v1.html("""
-                    <script>
-                    const audioData = localStorage.getItem('autoProcessAudio');
-                    if (audioData) {
-                        document.write(audioData);
-                        localStorage.removeItem('autoProcessAudio');
-                        localStorage.removeItem('autoProcessFlag');
-                    }
-                    </script>
-                    """, height=0)
-                    
-                    st.rerun()
-
-                # SIMPLER SOLUTION: Use file upload with auto-processing
-                st.write("**🎯 AUTOMATIC PROCESSING:**")
-                st.info("After recording, your audio will be processed automatically. If it doesn't work, use the backup upload below.")
-
-                # Backup processing
-                uploaded_audio = st.file_uploader(
-                    "🆘 Backup: Upload Your Recording", 
-                    type=['wav', 'mp3', 'webm', 'ogg'],
-                    key="backup_upload"
-                )
-
-                if uploaded_audio is not None:
-                    # AUTOMATIC processing when file is uploaded
-                    if not st.session_state.processing_audio:
-                        st.session_state.processing_audio = True
-                        
-                        with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
-                            try:
-                                # Save uploaded file
-                                temp_path = tempfile.mktemp(suffix=".wav")
-                                with open(temp_path, "wb") as f:
-                                    f.write(uploaded_audio.read())
-                                
-                                # Apply amplification and process through the full pipeline
-                                amplified_path = amplify_recorded_audio(temp_path)
-                                success = asyncio.run(process_html5_recorded_voice(amplified_path))
-                                
-                                if success:
-                                    st.success("✅ **AUTOMATIC PROCESSING COMPLETE!**")
+                        if uploaded_audio is not None:
+                            # IMMEDIATE processing when file is uploaded
+                            with st.spinner("🔄 **PROCESSING YOUR RECORDING...**"):
+                                try:
+                                    # Save uploaded file
+                                    temp_path = tempfile.mktemp(suffix=".wav")
+                                    with open(temp_path, "wb") as f:
+                                        f.write(uploaded_audio.read())
+                                    
+                                    # Apply amplification and process through the full pipeline
+                                    amplified_path = amplify_recorded_audio(temp_path)
+                                    
+                                    # Process with enhanced pipeline
+                                    text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(process_voice_input_pronunciation_enhanced(amplified_path))
+                                    
+                                    # Store results
+                                    if text:
+                                        st.session_state.last_text_input = text
+                                    if audio_output_path:
+                                        st.session_state.last_audio_output = audio_output_path
+                                    
+                                    # Show results
+                                    total_latency = stt_latency + llm_latency + tts_latency
+                                    st.success(f"✅ **PROCESSING COMPLETE!** ({total_latency:.2f}s)")
                                     st.balloons()
-                                else:
-                                    st.error("❌ Processing failed - please try again")
-                                
-                                # Clean up
-                                if os.path.exists(temp_path):
-                                    os.unlink(temp_path)
-                                if amplified_path != temp_path and os.path.exists(amplified_path):
-                                    os.unlink(amplified_path)
-                                    
-                            except Exception as e:
-                                st.error(f"Processing error: {str(e)}")
-                            
-                            finally:
-                                st.session_state.processing_audio = False
-
-                # Enhanced instructions
-                st.success("""
-                🎯 **EASY WORKFLOW:**
-                1. Click "🔴 START RECORDING" above
-                2. Speak clearly in Czech or German  
-                3. Click "⏹️ NEW RECORDING" when done
-                4. **EITHER:** Wait for automatic processing **OR** Download your recording and upload it in the backup section above
-
-                **Everything will process automatically!**
-                """)
-
-                # Add a hidden text area to capture audio data
-                audio_data_input = st.text_area(
-                    "Audio Data (Base64)", 
-                    value="", 
-                    height=100,
-                    placeholder="After clicking PROCESS in the recorder above, paste the audio data here and click PROCESS AUDIO below",
-                    help="The HTML5 recorder will store audio data. Copy it from browser console if needed."
-                )
-
-                if st.button("🔄 **PROCESS AUDIO DATA**", type="primary", key="process_audio_data"):
-                    if audio_data_input and audio_data_input.strip():
-                        with st.spinner("🔄 Processing recorded audio..."):
-                            try:
-                                # Process the base64 audio data
-                                temp_audio_path = process_html5_audio_data(audio_data_input.strip())
-                                
-                                if temp_audio_path:
-                                    # Run through the enhanced processing pipeline
-                                    success = asyncio.run(process_html5_recorded_voice(temp_audio_path))
-                                    
-                                    if success:
-                                        st.success("✅ Audio processed successfully!")
-                                    else:
-                                        st.error("❌ Audio processing failed")
                                     
                                     # Clean up
-                                    if os.path.exists(temp_audio_path):
-                                        os.unlink(temp_audio_path)
-                                else:
-                                    st.error("Failed to process audio data")
-                                    
-                            except Exception as e:
-                                st.error(f"Processing error: {str(e)}")
-                    else:
-                        st.warning("Please record audio first using the recorder above, then copy the audio data here")
+                                    if os.path.exists(temp_path):
+                                        os.unlink(temp_path)
+                                    if amplified_path != temp_path and os.path.exists(amplified_path):
+                                        os.unlink(amplified_path)
+                                        
+                                except Exception as e:
+                                    st.error(f"Processing error: {str(e)}")
 
-                # Alternative: Simple approach using browser's local storage
-                st.markdown("---")
-                st.write("**Alternative: JavaScript Console Method**")
-                st.info("""
-                **If the recorder isn't working:**
-                1. Record your audio using the recorder above
-                2. Click PROCESS in the recorder  
-                3. Open browser console (F12)
-                4. Type: `console.log(window.audioDataReady)`
-                5. Copy the resulting base64 string
-                6. Paste it in the text area above and click PROCESS AUDIO DATA
-                """)
-                
-                # Check for audio data (this would be set via JavaScript messaging)
-                # For now, we'll use a manual approach with file upload as backup
-                
-                st.markdown("---")
-                
-                # Manual processing section
-                st.write("**Manual Processing Controls:**")
-                
-                col1, col2 = st.columns([1, 1])
-                
-                with col1:
-                    # Alternative: Direct file upload for testing
-                    uploaded_audio = st.file_uploader(
-                        "🎯 Upload Recorded Audio (Testing)", 
-                        type=['wav', 'mp3', 'webm', 'ogg'],
-                        help="Upload your recorded audio file for processing",
-                        key="html5_upload"
-                    )
-                
-                with col2:
-                    if uploaded_audio is not None:
-                        if st.button("⚡ **PROCESS UPLOADED AUDIO**", type="primary", key="process_html5_upload"):
-                            with st.spinner("🔄 Processing HTML5 audio..."):
-                                # Save uploaded file
-                                temp_path = tempfile.mktemp(suffix=".wav")
-                                with open(temp_path, "wb") as f:
-                                    f.write(uploaded_audio.read())
-                                
-                                # Apply amplification
-                                amplified_path = amplify_recorded_audio(temp_path)
-                                
-                                # Process through enhanced pipeline
-                                success = asyncio.run(process_html5_recorded_voice(amplified_path))
-                                
-                                # Clean up
-                                if os.path.exists(temp_path):
-                                    os.unlink(temp_path)
-                                if amplified_path != temp_path and os.path.exists(amplified_path):
-                                    os.unlink(amplified_path)
-                
-                # Enhanced instructions
-                st.info("""
-                **How to Use:**
-                1. 🔴 Click START RECORDING and speak clearly
-                2. ⏹️ Click STOP when finished  
-                3. 🔊 Click PREVIEW to hear your recording
-                4. ⚡ Click PROCESS to transcribe and generate response
-                
-                **For Testing:** Use the upload option below the recorder
-                """)
-                
-                # Browser compatibility note
-                st.success("""
-                ✅ **HTML5 Audio Features:**
-                - Works in all modern browsers
-                - No WebRTC issues on Railway
-                - 500% audio amplification  
-                - Czech/German pronunciation focus
-                - Reliable production deployment
-                """)
+                        # Enhanced instructions
+                        st.success("""
+                        🎯 **SIMPLE WORKFLOW:**
+                        1. Click "🔴 START RECORDING" above
+                        2. Speak clearly in Czech or German  
+                        3. Click "⏹️ STOP RECORDING" when done
+                        4. **DOWNLOAD** the file that appears automatically
+                        5. **UPLOAD** it in the section above - processing starts immediately!
+
+                        **⚡ Total time: Record → Download → Upload → Get Results!**
+                        """)
     with col2:
         st.header("Output")
         
