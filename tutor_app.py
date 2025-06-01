@@ -2978,62 +2978,107 @@ def main():
                     else:
                         st.write("🎯 **Professional React Audio Recorder** - Direct Processing")
                         
-                        # Import and use the custom component
+                        # Try to use the custom component
+                        component_available = False
+                        audio_file_path = None
+                        
                         try:
-                            from components.audio_recorder.component import create_audio_recorder_component
+                            # Check if component is built
+                            import os
+                            build_path = "components/audio_recorder/frontend/build"
                             
-                            # Create the audio recorder
-                            audio_file_path = create_audio_recorder_component()
-                            
-                            # AUTO-PROCESS when audio is received
-                            if audio_file_path:
-                                with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
-                                    try:
-                                        # Apply amplification
-                                        amplified_path = amplify_recorded_audio(audio_file_path)
-                                        
-                                        # Process with enhanced pipeline
-                                        text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                            process_voice_input_pronunciation_enhanced(amplified_path)
-                                        )
-                                        
-                                        # Store results
-                                        if text:
-                                            st.session_state.last_text_input = text
-                                        if audio_output_path:
-                                            st.session_state.last_audio_output = audio_output_path
-                                        
-                                        # Show results
-                                        total_latency = stt_latency + llm_latency + tts_latency
-                                        st.success(f"✅ **AUTOMATIC PROCESSING COMPLETE!** ({total_latency:.2f}s)")
-                                        st.balloons()
-                                        
-                                        # Clean up
-                                        if os.path.exists(audio_file_path):
-                                            os.unlink(audio_file_path)
-                                        if amplified_path != audio_file_path and os.path.exists(amplified_path):
-                                            os.unlink(amplified_path)
-                                            
-                                    except Exception as e:
-                                        st.error(f"Processing error: {str(e)}")
-                            
-                        except ImportError:
-                            st.error("Audio recorder component not built. Please run: cd components/audio_recorder/frontend && npm install && npm run build")
-                            
-                            # Fallback to existing HTML5 recorder
-                            st.write("**Fallback: Using HTML5 recorder**")
+                            if os.path.exists(build_path):
+                                from components.audio_recorder.component import create_audio_recorder_component
+                                
+                                # Create the audio recorder
+                                audio_file_path = create_audio_recorder_component()
+                                component_available = True
+                                
+                                st.success("✅ Using Professional React Component")
+                            else:
+                                st.warning("⚠️ React component not built - using fallback")
+                                
+                        except ImportError as e:
+                            st.warning(f"⚠️ Component import failed: {e} - using fallback")
+                        except Exception as e:
+                            st.warning(f"⚠️ Component error: {e} - using fallback")
+                        
+                        # Fallback to HTML5 recorder if component not available
+                        if not component_available:
+                            st.info("📦 **Fallback Mode: HTML5 Recorder**")
                             create_audio_recorder_component()
+                            
+                            # Use the existing upload method as fallback
+                            uploaded_audio = st.file_uploader(
+                                "📥 Upload Your Downloaded Recording Here", 
+                                type=['wav', 'mp3', 'webm', 'ogg'],
+                                key="fallback_upload",
+                                help="Record with the HTML5 recorder above, download, then upload here"
+                            )
+
+                            if uploaded_audio is not None:
+                                audio_file_path = uploaded_audio
+
+                        # AUTO-PROCESS when audio is received (works for both modes)
+                        if audio_file_path:
+                            with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
+                                try:
+                                    # Handle both file upload and component data
+                                    if hasattr(audio_file_path, 'read'):
+                                        # It's an uploaded file
+                                        temp_path = tempfile.mktemp(suffix=".wav")
+                                        with open(temp_path, "wb") as f:
+                                            f.write(audio_file_path.read())
+                                        audio_file_path = temp_path
+                                    
+                                    # Apply amplification
+                                    amplified_path = amplify_recorded_audio(audio_file_path)
+                                    
+                                    # Process with enhanced pipeline
+                                    text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(
+                                        process_voice_input_pronunciation_enhanced(amplified_path)
+                                    )
+                                    
+                                    # Store results
+                                    if text:
+                                        st.session_state.last_text_input = text
+                                    if audio_output_path:
+                                        st.session_state.last_audio_output = audio_output_path
+                                    
+                                    # Show results
+                                    total_latency = stt_latency + llm_latency + tts_latency
+                                    st.success(f"✅ **AUTOMATIC PROCESSING COMPLETE!** ({total_latency:.2f}s)")
+                                    st.balloons()
+                                    
+                                    # Clean up
+                                    if os.path.exists(audio_file_path):
+                                        os.unlink(audio_file_path)
+                                    if amplified_path != audio_file_path and os.path.exists(amplified_path):
+                                        os.unlink(amplified_path)
+                                        
+                                except Exception as e:
+                                    st.error(f"Processing error: {str(e)}")
 
                         # Enhanced instructions
-                        st.success("""
-                        🎯 **AUTOMATIC WORKFLOW:**
-                        1. Click "🔴 START RECORDING" above
-                        2. Speak clearly in Czech or German  
-                        3. Click "⏹️ STOP RECORDING" when done
-                        4. **AUTOMATIC PROCESSING STARTS IMMEDIATELY!**
+                        if component_available:
+                            st.success("""
+                            🎯 **AUTOMATIC WORKFLOW (React Component):**
+                            1. Click "🔴 START RECORDING" above
+                            2. Speak clearly in Czech or German  
+                            3. Click "⏹️ STOP RECORDING" when done
+                            4. **AUTOMATIC PROCESSING STARTS IMMEDIATELY!**
 
-                        **⚡ Total time: Record → Stop → Results! (No manual steps)**
-                        """)
+                            **⚡ Total time: Record → Stop → Results! (No manual steps)**
+                            """)
+                        else:
+                            st.info("""
+                            🎯 **FALLBACK WORKFLOW (HTML5):**
+                            1. Click "🔴 START RECORDING" above
+                            2. Speak clearly in Czech or German  
+                            3. Click "⏹️ STOP RECORDING" when done
+                            4. **DOWNLOAD** the file that appears
+                            5. **UPLOAD** it above - processing starts automatically!
+                            """)
     with col2:
         st.header("Output")
         
