@@ -1410,7 +1410,7 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
     # Set up the conversation messages
     messages = []
     
-    # Add custom system prompt with language distribution preferences
+    # FIXED: Better system prompts that make conversational sense
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     else:
@@ -1423,38 +1423,34 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
             de_percent = st.session_state.language_distribution["de"]
             
             system_content = (
-                f"You are a multilingual AI language tutor specializing in Czech and German. "
-                f"Respond to the user using both languages with approximately {cs_percent}% Czech and {de_percent}% German. "
-                f"Always use appropriate language markers [cs] and [de] to indicate language sections. "
-                f"Keep your responses educational, helpful, and natural. "
-                f"Teach proper grammar, vocabulary, and pronunciation, and correct errors when appropriate."
+                f"You are a helpful multilingual assistant. Respond naturally in Czech and German using approximately {cs_percent}% Czech and {de_percent}% German. "
+                f"Use language markers [cs] and [de] to indicate language sections. "
+                f"Be conversational and natural - don't explain what you're doing. "
+                f"If someone greets you, greet back appropriately. If someone asks how you are, answer naturally. "
+                f"Never use English unless specifically asked."
             )
         elif response_language == "cs":
             system_content = (
-                "You are a Czech language tutor. Always respond in Czech only, with the [cs] marker. "
-                "Keep your responses educational, helpful, and natural. "
-                "Teach proper grammar, vocabulary, and pronunciation, and correct errors when appropriate."
+                "You are a helpful assistant. Always respond in Czech only with [cs] markers. "
+                "Be conversational and natural. If someone greets you, greet back. If someone asks how you are, answer naturally."
             )
         elif response_language == "de":
             system_content = (
-                "You are a German language tutor. Always respond in German only, with the [de] marker. "
-                "Keep your responses educational, helpful, and natural. "
-                "Teach proper grammar, vocabulary, and pronunciation, and correct errors when appropriate."
+                "You are a helpful assistant. Always respond in German only with [de] markers. "
+                "Be conversational and natural. If someone greets you, greet back. If someone asks how you are, answer naturally."
             )
         else:
-            # Default to matching the input language
+            # Auto mode - match user's language
             system_content = (
-                "You are a multilingual AI language tutor specializing in Czech and German. "
-                "Respond to the user in the same language they used. "
-                "If they used language markers like [cs] or [de], maintain those markers in your response. "
-                "Keep your responses educational, helpful, and natural. "
-                "Teach proper grammar, vocabulary, and pronunciation, and correct errors when appropriate."
+                "You are a helpful multilingual assistant. Respond in the same language(s) the user used. "
+                "If they used multiple languages, respond in those languages with appropriate [cs] and [de] markers. "
+                "Be conversational and natural - don't explain what you're doing. Never use English unless specifically asked."
             )
             
         messages.append({"role": "system", "content": system_content})
     
-    # Add previous conversation history for context
-    for exchange in st.session_state.conversation_history[-5:]:  # Last 5 exchanges
+    # Add previous conversation history for context (CRITICAL for conversational flow)
+    for exchange in st.session_state.conversation_history[-3:]:  # Last 3 exchanges for context
         if "user_input" in exchange:
             messages.append({"role": "user", "content": exchange["user_input"]})
         if "assistant_response" in exchange:
@@ -1472,10 +1468,10 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "gpt-3.5-turbo",  # Use faster model for lower latency
+                    "model": "gpt-3.5-turbo",
                     "messages": messages,
-                    "temperature": 0.5,
-                    "max_tokens": 400
+                    "temperature": 0.7,  # INCREASED for more natural responses
+                    "max_tokens": 150   # REDUCED for more focused responses
                 },
                 timeout=30.0
             )
@@ -1489,8 +1485,8 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                 result = response.json()
                 response_text = result["choices"][0]["message"]["content"]
                 
-                # Ensure language markers are preserved and added if missing
-                response_text = preserve_language_markers(prompt, response_text)
+                # FIXED: Ensure language markers and remove English explanations
+                response_text = clean_and_fix_response(prompt, response_text)
                 
                 return {
                     "response": response_text,
@@ -1511,6 +1507,65 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
             "response": f"Error: {str(e)}",
             "latency": time.time() - start_time
         }
+        
+def clean_and_fix_response(user_input, response_text):
+    """Clean response and ensure it makes conversational sense"""
+    
+    # Remove any English explanations that shouldn't be there
+    lines = response_text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Skip English explanations (lines without language markers that contain English)
+        if not re.search(r'\[([a-z]{2})\]', line):
+            # Check if it's likely English
+            english_indicators = ['you', 'are', 'the', 'and', 'or', 'is', 'this', 'that', 'would', 'like', 'know', 'practice', 'specific', 'anything']
+            if any(word in line.lower() for word in english_indicators):
+                continue  # Skip English lines
+        
+        cleaned_lines.append(line)
+    
+    # Rebuild response
+    cleaned_response = ' '.join(cleaned_lines)
+    
+    # If response is empty after cleaning, provide a default
+    if not cleaned_response.strip():
+        # Detect user's language and respond appropriately
+        if 'guten tag' in user_input.lower() or 'wie geht' in user_input.lower():
+            cleaned_response = "[de] Guten Tag! Mir geht es gut, danke."
+        elif 'dobrý den' in user_input.lower() or 'jak se máte' in user_input.lower():
+            cleaned_response = "[cs] Dobrý den! Mám se dobře, děkuji."
+        else:
+            cleaned_response = "[cs] Děkuji za vaši zprávu. [de] Vielen Dank für Ihre Nachricht."
+    
+    # Ensure language markers are present
+    if not re.search(r'\[([a-z]{2})\]', cleaned_response):
+        # Add appropriate language markers based on content
+        cleaned_response = add_appropriate_language_markers(cleaned_response, user_input)
+    
+    return cleaned_response.strip()
+
+def add_appropriate_language_markers(text, user_input):
+    """Add appropriate language markers based on user input and content"""
+    
+    # Detect user's language preference from input
+    user_input_lower = user_input.lower()
+    
+    # If user used German
+    if any(word in user_input_lower for word in ['guten', 'tag', 'wie', 'geht', 'danke', 'bitte']):
+        return f"[de] {text}"
+    
+    # If user used Czech  
+    elif any(word in user_input_lower for word in ['dobrý', 'den', 'jak', 'se', 'máte', 'děkuji', 'prosím']):
+        return f"[cs] {text}"
+    
+    # Default to Czech if unclear
+    return f"[cs] {text}"
+
 
 def add_language_markers(text):
     """Add language markers to text based on language detection"""
@@ -2574,30 +2629,22 @@ def create_pronunciation_aware_prompt(user_input, pronunciation_context):
     """Create system prompt that considers pronunciation context"""
     
     primary_lang = pronunciation_context.get("primary_language", "unknown")
-    confidence = pronunciation_context.get("confidence_level", "medium")
-    patterns = pronunciation_context.get("detected_patterns", [])
-    switches = pronunciation_context.get("language_switches", 0)
     
-    system_prompt = f"""You are a multilingual AI language tutor specializing in Czech and German pronunciation.
+    # FIXED: More natural conversation prompts
+    system_prompt = f"""You are a helpful multilingual assistant that speaks Czech and German naturally.
 
-PRONUNCIATION ANALYSIS:
-- Primary detected language: {primary_lang}
-- Pronunciation confidence: {confidence}
-- Detected pronunciation patterns: {', '.join(patterns) if patterns else 'None'}
-- Language switches detected: {switches}
+CONTEXT: The user said "{user_input}" (detected as {primary_lang})
 
-The user's input shows pronunciation characteristics that suggest they may have spoken:
-{user_input}
+INSTRUCTIONS:
+1. Respond naturally and conversationally in the same language(s) they used
+2. If they greeted you, greet them back appropriately  
+3. If they asked how you are, answer naturally (like "Mám se dobře" or "Mir geht es gut")
+4. Use [cs] for Czech and [de] for German content
+5. Be helpful and friendly
+6. NEVER use English unless they specifically ask
+7. Keep responses short and natural
 
-RESPONSE INSTRUCTIONS:
-1. Respond naturally based on the INTENDED meaning, not just literal text
-2. If pronunciation suggests Czech, respond with appropriate Czech content marked [cs]
-3. If pronunciation suggests German, respond with appropriate German content marked [de]
-4. If mixed languages detected, use both languages appropriately marked
-5. Be supportive and educational about pronunciation
-6. Correct any obvious pronunciation-based misunderstandings gently
-
-Focus on the communicative intent behind the pronunciation rather than perfect transcription accuracy."""
+Respond as a friendly person would in normal conversation."""
 
     return system_prompt
         
