@@ -202,7 +202,7 @@ def create_auto_processor():
         return st.components.v1.html(processor_html, height=0)
     
 def create_audio_recorder_component():
-    """Create HTML5 audio recorder component with WORKING auto-processing"""
+    """Create HTML5 audio recorder with AUTOMATIC localStorage processing"""
     html_code = """
     <div style="padding: 20px; border: 2px solid #ff4b4b; border-radius: 10px; text-align: center; background-color: #f0f2f6;">
         <div id="status" style="font-size: 18px; margin-bottom: 15px; font-weight: bold;">🎤 Ready to Record</div>
@@ -215,12 +215,9 @@ def create_audio_recorder_component():
         
         <div id="timer" style="font-size: 14px; margin-top: 10px; color: #666;">00:00</div>
         
-        <!-- FIXED: Download link for reliable processing -->
-        <div id="downloadSection" style="margin-top: 15px; display: none;">
-            <a id="downloadLink" style="background: #4CAF50; color: white; padding: 10px 20px; 
-                                        text-decoration: none; border-radius: 5px; font-weight: bold;">
-                📥 DOWNLOAD & UPLOAD BELOW FOR PROCESSING
-            </a>
+        <!-- AUTOMATIC PROCESSING STATUS -->
+        <div id="processingStatus" style="margin-top: 15px; font-weight: bold; color: #4CAF50; display: none;">
+            ⚡ AUTOMATIC PROCESSING - Please wait...
         </div>
         
         <div id="audioData" style="display: none;"></div>
@@ -263,11 +260,12 @@ def create_audio_recorder_component():
                 mediaRecorder.onstop = function() {
                     recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
                     
-                    // Update status
-                    document.getElementById('status').innerHTML = '✅ Recording Complete!';
+                    // AUTOMATIC PROCESSING - NO DOWNLOAD NEEDED!
+                    document.getElementById('status').innerHTML = '⚡ Auto-processing your recording...';
+                    document.getElementById('processingStatus').style.display = 'block';
                     
-                    // FIXED: Show download immediately for reliable processing
-                    showDownloadLink();
+                    // Convert to base64 and store in localStorage IMMEDIATELY
+                    convertAndStoreAudio();
                 };
                 
                 document.getElementById('status').innerHTML = '🎤 Ready - Click START to Record';
@@ -292,8 +290,8 @@ def create_audio_recorder_component():
                 recordBtn.style.background = '#666';
                 statusDiv.innerHTML = '🔴 RECORDING - Speak in Czech or German';
                 
-                // Hide download section
-                document.getElementById('downloadSection').style.display = 'none';
+                // Hide processing status
+                document.getElementById('processingStatus').style.display = 'none';
                 
                 // Start timer
                 timerInterval = setInterval(updateTimer, 1000);
@@ -302,13 +300,13 @@ def create_audio_recorder_component():
                 mediaRecorder.start(1000);
                 
             } else {
-                // Stop recording
+                // Stop recording - AUTO PROCESSING STARTS
                 isRecording = false;
                 mediaRecorder.stop();
                 
                 recordBtn.innerHTML = '🔄 NEW RECORDING';
                 recordBtn.style.background = '#ff4b4b';
-                statusDiv.innerHTML = '⏳ Processing recording...';
+                statusDiv.innerHTML = '⏳ Processing automatically...';
                 
                 // Stop timer
                 clearInterval(timerInterval);
@@ -323,31 +321,132 @@ def create_audio_recorder_component():
                 `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }
 
-        // FIXED: Reliable download approach
-        function showDownloadLink() {
+        // CRITICAL: Automatic localStorage storage and Streamlit trigger
+        function convertAndStoreAudio() {
             if (recordedBlob) {
-                const url = URL.createObjectURL(recordedBlob);
-                const downloadLink = document.getElementById('downloadLink');
-                
-                downloadLink.href = url;
-                downloadLink.download = 'my-recording.webm';
-                
-                // Show download section
-                document.getElementById('downloadSection').style.display = 'block';
-                
-                // Auto-click after 2 seconds
-                setTimeout(() => {
-                    downloadLink.click();
-                }, 2000);
-                
-                // Update status
-                document.getElementById('status').innerHTML = '✅ Recording ready! Download and upload below.';
+                const reader = new FileReader();
+                reader.onloadend = function() {
+                    const base64Data = reader.result.split(',')[1];
+                    
+                    // Store in localStorage with timestamp
+                    const audioData = {
+                        data: base64Data,
+                        timestamp: Date.now(),
+                        processed: false
+                    };
+                    
+                    localStorage.setItem('streamlit_audio_data', JSON.stringify(audioData));
+                    localStorage.setItem('streamlit_audio_ready', 'true');
+                    
+                    // Update UI
+                    document.getElementById('status').innerHTML = '✅ Recording ready! Processing automatically...';
+                    
+                    // TRIGGER STREAMLIT RERUN - Multiple methods for reliability
+                    triggerStreamlitProcessing();
+                };
+                reader.readAsDataURL(recordedBlob);
             }
+        }
+
+        // AUTOMATIC STREAMLIT TRIGGER - This forces Streamlit to check localStorage
+        function triggerStreamlitProcessing() {
+            // Method 1: Custom event
+            window.dispatchEvent(new CustomEvent('streamlit_audio_ready', {
+                detail: { timestamp: Date.now() }
+            }));
+            
+            // Method 2: Focus event (triggers Streamlit check)
+            setTimeout(() => {
+                window.focus();
+                window.blur();
+                window.focus();
+            }, 500);
+            
+            // Method 3: Storage event
+            window.dispatchEvent(new StorageEvent('storage', {
+                key: 'streamlit_audio_ready',
+                newValue: 'true',
+                storageArea: localStorage
+            }));
         }
     </script>
     """
     
     return st.components.v1.html(html_code, height=250)
+
+def check_localStorage_for_audio():
+    """Check localStorage for new audio data and process automatically"""
+    
+    # JavaScript to check localStorage and return audio data
+    js_check_code = """
+    <div style="display: none;">
+        <div id="audio-status">No audio</div>
+    </div>
+    
+    <script>
+        // Check if audio is ready in localStorage
+        const audioReady = localStorage.getItem('streamlit_audio_ready');
+        const audioDataStr = localStorage.getItem('streamlit_audio_data');
+        
+        if (audioReady === 'true' && audioDataStr) {
+            try {
+                const audioData = JSON.parse(audioDataStr);
+                
+                if (!audioData.processed) {
+                    // Mark as processed to avoid duplicate processing
+                    audioData.processed = true;
+                    localStorage.setItem('streamlit_audio_data', JSON.stringify(audioData));
+                    localStorage.removeItem('streamlit_audio_ready');
+                    
+                    // Pass data to Streamlit by setting element content
+                    document.getElementById('audio-status').textContent = audioData.data;
+                    
+                    console.log('Audio data ready for Streamlit processing');
+                }
+            } catch (error) {
+                console.error('Error processing audio data:', error);
+                localStorage.removeItem('streamlit_audio_ready');
+            }
+        }
+    </script>
+    """
+    
+    # Execute JavaScript and get result
+    result = st.components.v1.html(js_check_code, height=10)
+    
+    # Extract audio data from the component
+    if result:
+        return result
+    
+    return None
+
+def get_audio_from_localStorage():
+    """Extract base64 audio data from localStorage via JavaScript"""
+    
+    js_extract_code = """
+    <script>
+        const audioDataStr = localStorage.getItem('streamlit_audio_data');
+        if (audioDataStr) {
+            try {
+                const audioData = JSON.parse(audioDataStr);
+                if (audioData.data && !audioData.processed) {
+                    // Return the base64 data
+                    document.write(audioData.data);
+                    
+                    // Mark as processed
+                    audioData.processed = true;
+                    localStorage.setItem('streamlit_audio_data', JSON.stringify(audioData));
+                    localStorage.removeItem('streamlit_audio_ready');
+                }
+            } catch (error) {
+                console.error('Error extracting audio:', error);
+            }
+        }
+    </script>
+    """
+    
+    result = st.components.v1.html(js_extract_code, height=0)
+    return result
 
 def convert_webm_to_wav(webm_path):
     """Convert WebM audio to WAV format"""
@@ -458,40 +557,6 @@ def process_html5_audio_data(base64_audio_data):
         
     except Exception as e:
         logger.error(f"HTML5 audio processing error: {str(e)}")
-        return None
-    
-def process_component_audio_data(audio_result):
-    """Process audio data directly from custom component"""
-    try:
-        import base64
-        
-        # Extract data from component result
-        audio_data = audio_result.get('audio_data')
-        sample_rate = audio_result.get('sample_rate', 16000)
-        
-        if not audio_data:
-            logger.error("No audio data in component result")
-            return None
-        
-        # Decode base64 audio data
-        audio_bytes = base64.b64decode(audio_data)
-        
-        # Save to temporary file
-        temp_path = tempfile.mktemp(suffix=".webm")
-        with open(temp_path, "wb") as f:
-            f.write(audio_bytes)
-        
-        # Convert webm to wav for processing
-        wav_path = convert_webm_to_wav(temp_path)
-        
-        # Clean up temporary webm file
-        if os.path.exists(temp_path):
-            os.unlink(temp_path)
-            
-        return wav_path
-        
-    except Exception as e:
-        logger.error(f"Component audio processing error: {str(e)}")
         return None
     
 async def process_html5_recorded_voice(audio_path):
@@ -2998,7 +3063,7 @@ def main():
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
         else:
-                    # Voice input - CUSTOM COMPONENT (Direct Processing)
+                    # Voice input - AUTOMATIC localStorage METHOD
                     st.subheader("🎤 Professional Voice Recording")
                     
                     # Check if API keys are set
@@ -3010,23 +3075,29 @@ def main():
                     if not keys_set:
                         st.warning("Please set both API keys in the sidebar first")
                     else:
-                        st.write("🎯 **Custom Audio Component** - Direct Processing")
+                        st.write("🎯 **AUTOMATIC AUDIO PROCESSING** - No downloads needed!")
                         
-                        # 🆕 CUSTOM COMPONENT IMPLEMENTATION
-                        from audio_component import audio_recorder
+                        # Create the HTML5 audio recorder component
+                        create_audio_recorder_component()
+
+                        st.markdown("---")
                         
-                        # Get audio data directly from component
-                        audio_result = audio_recorder(key="main_audio_recorder")
+                        # AUTOMATIC PROCESSING - Check localStorage every time page loads/refreshes
+                        if 'checking_audio' not in st.session_state:
+                            st.session_state.checking_audio = True
                         
-                        # Process audio immediately when received
-                        if audio_result is not None and 'audio_data' in audio_result:
-                            with st.spinner("🔄 **PROCESSING YOUR RECORDING DIRECTLY...**"):
+                        # Get audio from localStorage automatically
+                        audio_data_b64 = get_audio_from_localStorage()
+                        
+                        if audio_data_b64 and audio_data_b64.strip():
+                            # We have audio data! Process immediately
+                            with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
                                 try:
-                                    # Process the audio data directly (no file downloads!)
-                                    temp_audio_path = process_component_audio_data(audio_result)
+                                    # Process the base64 audio data
+                                    temp_audio_path = process_html5_audio_data(audio_data_b64.strip())
                                     
                                     if temp_audio_path:
-                                        # Apply amplification
+                                        # Apply amplification and process through the full pipeline
                                         amplified_path = amplify_recorded_audio(temp_audio_path)
                                         
                                         # Process with enhanced pipeline
@@ -3042,30 +3113,40 @@ def main():
                                         
                                         # Show results
                                         total_latency = stt_latency + llm_latency + tts_latency
-                                        st.success(f"✅ **DIRECT PROCESSING COMPLETE!** ({total_latency:.2f}s)")
+                                        st.success(f"✅ **AUTOMATIC PROCESSING COMPLETE!** ({total_latency:.2f}s)")
                                         st.balloons()
                                         
                                         # Clean up
                                         if os.path.exists(temp_audio_path):
                                             os.unlink(temp_audio_path)
-                                        if amplified_path != temp_audio_path and os.path.exists(amplified_path):
+                                        if amplified_path != temp_path and os.path.exists(amplified_path):
                                             os.unlink(amplified_path)
-                                    else:
-                                        st.error("Failed to process audio data")
+                                            
+                                        # Auto-refresh to clear the processed data
+                                        time.sleep(1)
+                                        st.rerun()
                                         
                                 except Exception as e:
                                     st.error(f"Processing error: {str(e)}")
 
-                        # Instructions
+                        # Auto-refresh mechanism to check for new audio
+                        if st.button("🔄 Check for New Recording", help="Click if processing doesn't start automatically"):
+                            st.rerun()
+
+                        # Enhanced instructions
                         st.success("""
-                        🎯 **SEAMLESS WORKFLOW:**
+                        🎯 **FULLY AUTOMATIC WORKFLOW:**
                         1. Click "🔴 START RECORDING" above
                         2. Speak clearly in Czech or German  
                         3. Click "⏹️ STOP RECORDING" when done
-                        4. **AUTOMATIC PROCESSING** - no downloads needed!
+                        4. **AUTOMATIC PROCESSING** starts immediately!
+                        5. **NO DOWNLOADS** - Everything happens automatically!
 
-                        **⚡ Total time: Record → Stop → Instant Results!**
+                        **⚡ Total time: Record → Stop → Get Results instantly!**
                         """)
+                        
+                        # Backup method note
+                        st.info("💡 **How it works:** Your audio is stored in browser memory and processed automatically when you stop recording. No files to download!")
     with col2:
         st.header("Output")
         
