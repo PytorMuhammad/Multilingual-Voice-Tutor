@@ -2964,7 +2964,7 @@ def main():
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
         else:
-                    # Voice input - PROFESSIONAL REACT COMPONENT
+                    # Voice input - FIXED HTML5 AUDIO RECORDER
                     st.subheader("🎤 Professional Voice Recording")
                     
                     # Check if API keys are set
@@ -2976,68 +2976,36 @@ def main():
                     if not keys_set:
                         st.warning("Please set both API keys in the sidebar first")
                     else:
-                        st.write("🎯 **Professional React Audio Recorder** - Direct Processing")
+                        st.write("🎯 **HTML5 Audio Recording** - Reliable Railway Deployment")
                         
-                        # Try to use the custom component
-                        component_available = False
-                        audio_file_path = None
-                        
-                        try:
-                            # Check if component is built
-                            import os
-                            build_path = "components/audio_recorder/frontend/build"
-                            
-                            if os.path.exists(build_path):
-                                from components.audio_recorder.component import create_audio_recorder_component
-                                
-                                # Create the audio recorder
-                                audio_file_path = create_audio_recorder_component()
-                                component_available = True
-                                
-                                st.success("✅ Using Professional React Component")
-                            else:
-                                st.warning("⚠️ React component not built - using fallback")
-                                
-                        except ImportError as e:
-                            st.warning(f"⚠️ Component import failed: {e} - using fallback")
-                        except Exception as e:
-                            st.warning(f"⚠️ Component error: {e} - using fallback")
-                        
-                        # Fallback to HTML5 recorder if component not available
-                        if not component_available:
-                            st.info("📦 **Fallback Mode: HTML5 Recorder**")
-                            create_audio_recorder_component()
-                            
-                            # Use the existing upload method as fallback
-                            uploaded_audio = st.file_uploader(
-                                "📥 Upload Your Downloaded Recording Here", 
-                                type=['wav', 'mp3', 'webm', 'ogg'],
-                                key="fallback_upload",
-                                help="Record with the HTML5 recorder above, download, then upload here"
-                            )
+                        # Create the HTML5 audio recorder component
+                        create_audio_recorder_component()
 
-                            if uploaded_audio is not None:
-                                audio_file_path = uploaded_audio
+                        st.markdown("---")
+                        st.write("**🔄 AUTOMATIC PROCESSING:**")
+                        
+                        # FIXED: Reliable upload processing
+                        uploaded_audio = st.file_uploader(
+                            "📥 Upload Your Downloaded Recording Here", 
+                            type=['wav', 'mp3', 'webm', 'ogg'],
+                            key="main_upload",
+                            help="After recording above, download the file and upload it here for automatic processing"
+                        )
 
-                        # AUTO-PROCESS when audio is received (works for both modes)
-                        if audio_file_path:
-                            with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
+                        if uploaded_audio is not None:
+                            # IMMEDIATE processing when file is uploaded
+                            with st.spinner("🔄 **PROCESSING YOUR RECORDING...**"):
                                 try:
-                                    # Handle both file upload and component data
-                                    if hasattr(audio_file_path, 'read'):
-                                        # It's an uploaded file
-                                        temp_path = tempfile.mktemp(suffix=".wav")
-                                        with open(temp_path, "wb") as f:
-                                            f.write(audio_file_path.read())
-                                        audio_file_path = temp_path
+                                    # Save uploaded file
+                                    temp_path = tempfile.mktemp(suffix=".wav")
+                                    with open(temp_path, "wb") as f:
+                                        f.write(uploaded_audio.read())
                                     
-                                    # Apply amplification
-                                    amplified_path = amplify_recorded_audio(audio_file_path)
+                                    # Apply amplification and process through the full pipeline
+                                    amplified_path = amplify_recorded_audio(temp_path)
                                     
                                     # Process with enhanced pipeline
-                                    text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                        process_voice_input_pronunciation_enhanced(amplified_path)
-                                    )
+                                    text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(process_voice_input_pronunciation_enhanced(amplified_path))
                                     
                                     # Store results
                                     if text:
@@ -3047,38 +3015,29 @@ def main():
                                     
                                     # Show results
                                     total_latency = stt_latency + llm_latency + tts_latency
-                                    st.success(f"✅ **AUTOMATIC PROCESSING COMPLETE!** ({total_latency:.2f}s)")
+                                    st.success(f"✅ **PROCESSING COMPLETE!** ({total_latency:.2f}s)")
                                     st.balloons()
                                     
                                     # Clean up
-                                    if os.path.exists(audio_file_path):
-                                        os.unlink(audio_file_path)
-                                    if amplified_path != audio_file_path and os.path.exists(amplified_path):
+                                    if os.path.exists(temp_path):
+                                        os.unlink(temp_path)
+                                    if amplified_path != temp_path and os.path.exists(amplified_path):
                                         os.unlink(amplified_path)
                                         
                                 except Exception as e:
                                     st.error(f"Processing error: {str(e)}")
 
                         # Enhanced instructions
-                        if component_available:
-                            st.success("""
-                            🎯 **AUTOMATIC WORKFLOW (React Component):**
-                            1. Click "🔴 START RECORDING" above
-                            2. Speak clearly in Czech or German  
-                            3. Click "⏹️ STOP RECORDING" when done
-                            4. **AUTOMATIC PROCESSING STARTS IMMEDIATELY!**
+                        st.success("""
+                        🎯 **SIMPLE WORKFLOW:**
+                        1. Click "🔴 START RECORDING" above
+                        2. Speak clearly in Czech or German  
+                        3. Click "⏹️ STOP RECORDING" when done
+                        4. **DOWNLOAD** the file that appears automatically
+                        5. **UPLOAD** it in the section above - processing starts immediately!
 
-                            **⚡ Total time: Record → Stop → Results! (No manual steps)**
-                            """)
-                        else:
-                            st.info("""
-                            🎯 **FALLBACK WORKFLOW (HTML5):**
-                            1. Click "🔴 START RECORDING" above
-                            2. Speak clearly in Czech or German  
-                            3. Click "⏹️ STOP RECORDING" when done
-                            4. **DOWNLOAD** the file that appears
-                            5. **UPLOAD** it above - processing starts automatically!
-                            """)
+                        **⚡ Total time: Record → Download → Upload → Get Results!**
+                        """)
     with col2:
         st.header("Output")
         
