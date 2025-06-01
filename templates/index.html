@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎤 Multilingual AI Voice Tutor</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .container { background: #f8f9fa; padding: 30px; border-radius: 10px; margin: 20px 0; }
+        .button { padding: 15px 30px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin: 10px; }
+        .button:hover { background: #0056b3; }
+        .success { background: #d4edda; border: 1px solid #c3e6cb; padding: 15px; border-radius: 5px; }
+        .error { background: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 5px; }
+        .loading { display: none; text-align: center; }
+        #result { margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <h1>🎤 Multilingual AI Voice Tutor</h1>
+    <h3>Proof-of-Concept for Czech ↔ German Language Switching</h3>
+    
+    <div class="container">
+        <h3>🎯 Voice Upload & Processing</h3>
+        <input type="file" id="audioFile" accept=".wav,.mp3,.ogg,.m4a" />
+        <br><br>
+        <button class="button" onclick="uploadAudio()">⚡ **PROCESS VOICE**</button>
+        
+        <div id="loading" class="loading">
+            <h4>🔄 Processing voice with 500% amplification...</h4>
+            <p>Please wait while we enhance and analyze your pronunciation...</p>
+        </div>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        async function uploadAudio() {
+            const fileInput = document.getElementById('audioFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select an audio file first!');
+                return;
+            }
+            
+            const loading = document.getElementById('loading');
+            const result = document.getElementById('result');
+            
+            loading.style.display = 'block';
+            result.innerHTML = '';
+            
+            const formData = new FormData();
+            formData.append('audio', file);
+            
+            try {
+                const response = await fetch('/upload_audio', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                loading.style.display = 'none';
+                
+                if (data.success) {
+                    result.innerHTML = `
+                        <div class="success">
+                            <h4>✅ Processing Complete!</h4>
+                            <p><strong>Transcribed Text:</strong> ${data.transcribed_text}</p>
+                            <p><strong>Total Time:</strong> ${data.latency.total.toFixed(2)}s</p>
+                            <audio controls style="width: 100%; margin: 10px 0;">
+                                <source src="${data.audio_url}" type="audio/mpeg">
+                            </audio>
+                            <br>
+                            <a href="${data.audio_url}" download class="button">📥 Download Audio</a>
+                        </div>
+                    `;
+                } else {
+                    result.innerHTML = `<div class="error">❌ Error: ${data.error}</div>`;
+                }
+            } catch (error) {
+                loading.style.display = 'none';
+                result.innerHTML = `<div class="error">❌ Upload failed: ${error.message}</div>`;
+            }
+        }
+    </script>
+</body>
+</html>
