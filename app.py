@@ -1,12 +1,14 @@
-FROM python:3.11-slim
+#!/usr/bin/env python3
+import os
+import sys
 
-WORKDIR /app
+# NUCLEAR OPTION: Clear ALL Streamlit env vars
+env_keys_to_remove = [k for k in os.environ.keys() if 'STREAMLIT' in k or 'streamlit' in k.lower()]
+for key in env_keys_to_remove:
+    del os.environ[key]
 
-RUN apt-get update && apt-get install -y ffmpeg libsndfile1 portaudio19-dev gcc g++ && rm -rf /var/lib/apt/lists/*
+# Get port from Railway
+port = os.environ.get('PORT', '8080')
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-
-CMD ["python", "app.py"]
+# Run Streamlit with explicit settings
+os.system(f'streamlit run tutor_app.py --server.port {port} --server.address 0.0.0.0 --server.headless true --server.enableCORS false')
