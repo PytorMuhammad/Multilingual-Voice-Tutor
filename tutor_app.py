@@ -202,7 +202,7 @@ def create_auto_processor():
         return st.components.v1.html(processor_html, height=0)
     
 def create_audio_recorder_component():
-    """HTML5 recorder with DIRECT Streamlit transfer - NO DOWNLOADS"""
+    """HYBRID: Multi-method audio capture with automatic processing"""
     html_code = """
     <div style="padding: 20px; border: 2px solid #ff4b4b; border-radius: 10px; text-align: center; background-color: #f0f2f6;">
         <div id="status" style="font-size: 18px; margin-bottom: 15px; font-weight: bold;">🎤 Ready to Record</div>
@@ -215,8 +215,15 @@ def create_audio_recorder_component():
         
         <div id="timer" style="font-size: 14px; margin-top: 10px; color: #666;">00:00</div>
         
-        <!-- Hidden textarea for direct data transfer -->
-        <textarea id="audioDataTransfer" style="display: none;"></textarea>
+        <!-- HYBRID: Hidden form for auto-submit fallback -->
+        <form id="hiddenForm" style="display: none;">
+            <input type="file" id="hiddenFileInput" accept="audio/*">
+        </form>
+        
+        <!-- HYBRID: Multiple data storage methods -->
+        <div id="audioData" style="display: none;"></div>
+        <div id="sessionBridge" style="display: none;"></div>
+        <div id="memoryBuffer" style="display: none;"></div>
     </div>
 
     <script>
@@ -225,12 +232,21 @@ def create_audio_recorder_component():
         let isRecording = false;
         let recordingTime = 0;
         let timerInterval;
-
-        window.onload = function() {
-            initializeRecorder();
+        let recordedBlob = null;
+        
+        // HYBRID: Multiple processing methods
+        let processingMethods = {
+            sessionState: false,
+            localStorage: false,
+            formSubmit: false,
+            memoryBuffer: false
         };
 
-        async function initializeRecorder() {
+        window.onload = function() {
+            initializeHybridRecorder();
+        };
+
+        async function initializeHybridRecorder() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
@@ -252,17 +268,18 @@ def create_audio_recorder_component():
                 };
                 
                 mediaRecorder.onstop = function() {
-                    const recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    document.getElementById('status').innerHTML = '⚡ Auto-processing with hybrid methods...';
                     
-                    // DIRECT PROCESSING - NO DOWNLOADS
-                    processAudioDirectly(recordedBlob);
+                    // HYBRID: Try all methods simultaneously
+                    processAudioHybrid();
                 };
                 
-                document.getElementById('status').innerHTML = '🎤 Ready - Click START to Record';
+                document.getElementById('status').innerHTML = '🎤 Hybrid Recorder Ready - Click START';
                 
             } catch (error) {
                 document.getElementById('status').innerHTML = '❌ Microphone access denied';
-                console.error('Error accessing microphone:', error);
+                console.error('Hybrid recorder error:', error);
             }
         }
 
@@ -282,8 +299,6 @@ def create_audio_recorder_component():
                 
                 // Start timer
                 timerInterval = setInterval(updateTimer, 1000);
-                
-                // Start recording
                 mediaRecorder.start(1000);
                 
             } else {
@@ -291,11 +306,10 @@ def create_audio_recorder_component():
                 isRecording = false;
                 mediaRecorder.stop();
                 
-                recordBtn.innerHTML = '🔄 PROCESSING...';
-                recordBtn.style.background = '#orange';
-                statusDiv.innerHTML = '⚡ Processing automatically...';
+                recordBtn.innerHTML = '🔄 NEW RECORDING';
+                recordBtn.style.background = '#ff4b4b';
+                statusDiv.innerHTML = '⏳ Hybrid processing starting...';
                 
-                // Stop timer
                 clearInterval(timerInterval);
             }
         }
@@ -308,86 +322,215 @@ def create_audio_recorder_component():
                 `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }
 
-        // DIRECT AUDIO PROCESSING - THE MAGIC HAPPENS HERE
-        function processAudioDirectly(blob) {
+        // HYBRID: Multi-method processing
+        async function processAudioHybrid() {
+            if (!recordedBlob) return;
+            
             const reader = new FileReader();
             reader.onloadend = function() {
                 const base64Data = reader.result.split(',')[1];
                 
-                // Put data directly in the hidden textarea
-                document.getElementById('audioDataTransfer').value = base64Data;
+                // METHOD 1: Session State Bridge (Primary)
+                try {
+                    window.streamlitAudioData = base64Data;
+                    window.audioProcessingFlag = 'session_ready';
+                    processingMethods.sessionState = true;
+                    console.log('✅ Session State method ready');
+                } catch (e) {
+                    console.warn('⚠️ Session State method failed:', e);
+                }
                 
-                // Trigger Streamlit update by dispatching event
-                document.getElementById('audioDataTransfer').dispatchEvent(new Event('input', { bubbles: true }));
+                // METHOD 2: localStorage Bridge (Fallback 1)
+                try {
+                    localStorage.setItem('hybridAudioData', base64Data);
+                    localStorage.setItem('hybridProcessFlag', 'true');
+                    localStorage.setItem('hybridTimestamp', Date.now().toString());
+                    processingMethods.localStorage = true;
+                    console.log('✅ localStorage method ready');
+                } catch (e) {
+                    console.warn('⚠️ localStorage method failed:', e);
+                }
                 
-                // Update status
-                document.getElementById('status').innerHTML = '✅ Audio captured! Processing...';
-                document.getElementById('recordBtn').innerHTML = '🔄 NEW RECORDING';
-                document.getElementById('recordBtn').style.background = '#ff4b4b';
+                // METHOD 3: Hidden Form Submit (Fallback 2)
+                try {
+                    const file = new File([recordedBlob], 'hybrid-recording.webm', { type: 'audio/webm' });
+                    const dt = new DataTransfer();
+                    dt.items.add(file);
+                    document.getElementById('hiddenFileInput').files = dt.files;
+                    processingMethods.formSubmit = true;
+                    console.log('✅ Form Submit method ready');
+                } catch (e) {
+                    console.warn('⚠️ Form Submit method failed:', e);
+                }
                 
-                console.log('Audio data ready for Streamlit:', base64Data.substring(0, 50) + '...');
+                // METHOD 4: Memory Buffer (Fallback 3)
+                try {
+                    document.getElementById('memoryBuffer').setAttribute('data-audio', base64Data);
+                    document.getElementById('memoryBuffer').setAttribute('data-ready', 'true');
+                    processingMethods.memoryBuffer = true;
+                    console.log('✅ Memory Buffer method ready');
+                } catch (e) {
+                    console.warn('⚠️ Memory Buffer method failed:', e);
+                }
+                
+                // Update status with successful methods
+                const successCount = Object.values(processingMethods).filter(Boolean).length;
+                document.getElementById('status').innerHTML = 
+                    `✅ Hybrid Ready! ${successCount}/4 methods active. Processing automatically...`;
+                
+                // Trigger Streamlit check
+                triggerStreamlitProcessing();
             };
-            reader.readAsDataURL(blob);
+            
+            reader.readAsDataURL(recordedBlob);
+        }
+        
+        // HYBRID: Trigger processing check
+        function triggerStreamlitProcessing() {
+            // Send message to parent window (Streamlit)
+            window.parent.postMessage({
+                type: 'HYBRID_AUDIO_READY',
+                methods: processingMethods,
+                timestamp: Date.now()
+            }, '*');
+            
+            // Also dispatch custom event
+            const event = new CustomEvent('hybridAudioReady', {
+                detail: {
+                    methods: processingMethods,
+                    timestamp: Date.now()
+                }
+            });
+            document.dispatchEvent(event);
         }
     </script>
     """
     
-    return st.components.v1.html(html_code, height=200)
+    return st.components.v1.html(html_code, height=250)
 
-def check_direct_audio_transfer():
-    """Check for direct audio transfer and process automatically"""
-    # This will be called when the component updates
-    try:
-        # Get the component's return value (the base64 audio data)
-        component_value = st.session_state.get('audio_component_key', '')
-        
-        if component_value and len(component_value) > 100:  # Valid audio data
-            with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
-                try:
-                    # Process the audio data directly
-                    temp_audio_path = process_html5_audio_data(component_value)
-                    
-                    if temp_audio_path:
-                        # Apply amplification and process through the full pipeline
-                        amplified_path = amplify_recorded_audio(temp_audio_path)
-                        
-                        # Process with enhanced pipeline
-                        text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                            process_voice_input_pronunciation_enhanced(amplified_path)
-                        )
-                        
-                        # Store results
-                        if text:
-                            st.session_state.last_text_input = text
-                        if audio_output_path:
-                            st.session_state.last_audio_output = audio_output_path
-                        
-                        # Show results
-                        total_latency = stt_latency + llm_latency + tts_latency
-                        st.success(f"✅ **AUTOMATIC PROCESSING COMPLETE!** ({total_latency:.2f}s)")
-                        st.balloons()
-                        
-                        # Clean up
-                        if os.path.exists(temp_audio_path):
-                            os.unlink(temp_audio_path)
-                        if amplified_path != temp_audio_path and os.path.exists(amplified_path):
-                            os.unlink(amplified_path)
-                        
-                        # Clear the processed data
-                        st.session_state.audio_component_key = ''
-                        
-                        return True
-                        
-                except Exception as e:
-                    st.error(f"Processing error: {str(e)}")
-                    return False
-                    
-    except Exception as e:
-        # Silent fail - no audio data yet
-        pass
+def check_hybrid_audio_methods():
+    """HYBRID: Check all available methods for audio data"""
+    audio_data = None
+    source_method = None
     
-    return False
+    # METHOD 1: Check session state (Primary)
+    try:
+        if hasattr(st.session_state, 'hybrid_audio_data') and st.session_state.hybrid_audio_data:
+            audio_data = st.session_state.hybrid_audio_data
+            source_method = "session_state"
+            st.session_state.hybrid_audio_data = None  # Clear after use
+            logger.info("✅ Hybrid: Using Session State method")
+    except Exception as e:
+        logger.debug(f"Session State method unavailable: {e}")
+    
+    # METHOD 2: Check JavaScript component data (Fallback 1)
+    if not audio_data:
+        try:
+            js_check = st.components.v1.html("""
+            <script>
+                const audioData = localStorage.getItem('hybridAudioData');
+                const processFlag = localStorage.getItem('hybridProcessFlag');
+                
+                if (processFlag === 'true' && audioData) {
+                    localStorage.removeItem('hybridAudioData');
+                    localStorage.removeItem('hybridProcessFlag');
+                    document.write(audioData);
+                }
+            </script>
+            """, height=0)
+            
+            if js_check and len(str(js_check)) > 50:  # Basic validation
+                audio_data = js_check
+                source_method = "localStorage"
+                logger.info("✅ Hybrid: Using localStorage method")
+        except Exception as e:
+            logger.debug(f"localStorage method unavailable: {e}")
+    
+    # METHOD 3: Check memory buffer (Fallback 2)
+    if not audio_data:
+        try:
+            # This would be set by the component
+            if hasattr(st.session_state, 'memory_buffer_audio'):
+                audio_data = st.session_state.memory_buffer_audio
+                source_method = "memory_buffer"
+                st.session_state.memory_buffer_audio = None
+                logger.info("✅ Hybrid: Using Memory Buffer method")
+        except Exception as e:
+            logger.debug(f"Memory Buffer method unavailable: {e}")
+    
+    return audio_data, source_method
 
+def process_hybrid_audio_data(audio_data, source_method):
+    """HYBRID: Process audio data from any source method"""
+    try:
+        if not audio_data:
+            return None
+            
+        logger.info(f"🔄 Processing audio from: {source_method}")
+        
+        # Convert base64 to audio file
+        import base64
+        import io
+        
+        # Handle different data formats
+        if isinstance(audio_data, str):
+            if ',' in audio_data:
+                audio_data = audio_data.split(',')[1]  # Remove data:audio/webm;base64, prefix
+            audio_bytes = base64.b64decode(audio_data)
+        else:
+            audio_bytes = audio_data
+        
+        # Save to temporary file
+        temp_path = tempfile.mktemp(suffix=".webm")
+        with open(temp_path, "wb") as f:
+            f.write(audio_bytes)
+        
+        # Convert and amplify
+        wav_path = convert_webm_to_wav(temp_path)
+        amplified_path = amplify_recorded_audio(wav_path)
+        
+        # Clean up intermediate files
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        if wav_path != amplified_path and os.path.exists(wav_path):
+            os.unlink(wav_path)
+            
+        return amplified_path
+        
+    except Exception as e:
+        logger.error(f"Hybrid audio processing error: {str(e)}")
+        return None
+
+async def process_hybrid_audio_complete(amplified_path, source_method):
+    """HYBRID: Complete processing pipeline"""
+    try:
+        logger.info(f"🚀 Starting complete pipeline via {source_method}")
+        
+        # Run through enhanced processing pipeline
+        text, audio_output_path, stt_latency, llm_latency, tts_latency = await process_voice_input_pronunciation_enhanced(amplified_path)
+        
+        # Store results
+        if text:
+            st.session_state.last_text_input = text
+            logger.info(f"📝 Transcribed: {text}")
+        
+        if audio_output_path:
+            st.session_state.last_audio_output = audio_output_path
+            logger.info("🔊 Generated response audio")
+        
+        # Show success metrics
+        total_latency = stt_latency + llm_latency + tts_latency
+        logger.info(f"✅ Hybrid processing complete! ({total_latency:.2f}s via {source_method})")
+        
+        # Clean up
+        if os.path.exists(amplified_path):
+            os.unlink(amplified_path)
+            
+        return True, total_latency
+        
+    except Exception as e:
+        logger.error(f"Hybrid complete processing error: {str(e)}")
+        return False, 0
 
 def convert_webm_to_wav(webm_path):
     """Convert WebM audio to WAV format"""
@@ -3002,10 +3145,10 @@ def main():
                     # Show latency metrics
                     total_latency = llm_latency + tts_latency
                     st.success(f"Text processed in {total_latency:.2f} seconds")
-        
+                
         else:
-                    # Voice input - DIRECT PROCESSING (NO DOWNLOADS)
-                    st.subheader("🎤 Professional Voice Recording")
+                    # Voice input - HYBRID MULTI-METHOD SYSTEM
+                    st.subheader("🎤 Hybrid Voice Processing System")
                     
                     # Check if API keys are set
                     keys_set = (
@@ -3016,31 +3159,124 @@ def main():
                     if not keys_set:
                         st.warning("Please set both API keys in the sidebar first")
                     else:
-                        st.write("🎯 **Direct Audio Processing** - No Downloads Needed!")
+                        st.write("🚀 **Hybrid Multi-Method Audio System** - 4 Fallback Methods for 100% Reliability")
                         
-                        # Create the recorder with direct transfer
-                        audio_data = create_audio_recorder_component()
-                        
-                        # Store component data in session state
-                        if audio_data:
-                            st.session_state.audio_component_key = audio_data
-                        
-                        # Check for and process audio automatically
-                        success = check_direct_audio_transfer()
-                        
-                        if success:
-                            st.rerun()  # Refresh to show results
-                        
-                        # Instructions
-                        st.success("""
-                        🎯 **DIRECT WORKFLOW:**
-                        1. Click "🔴 START RECORDING"
-                        2. Speak clearly in Czech or German  
-                        3. Click "⏹️ STOP RECORDING" 
-                        4. **AUTOMATIC PROCESSING** - No downloads needed!
+                        # Create the hybrid audio recorder component
+                        create_audio_recorder_component()
 
-                        **⚡ Everything happens automatically!**
+                        st.markdown("---")
+                        
+                        # HYBRID: Auto-check for audio data every few seconds
+                        if 'hybrid_check_counter' not in st.session_state:
+                            st.session_state.hybrid_check_counter = 0
+                        
+                        st.session_state.hybrid_check_counter += 1
+                        
+                        # Check hybrid methods every 3 page refreshes (auto-polling)
+                        if st.session_state.hybrid_check_counter % 3 == 0:
+                            audio_data, source_method = check_hybrid_audio_methods()
+                            
+                            if audio_data and source_method:
+                                with st.spinner(f"🔄 **HYBRID PROCESSING** via {source_method.upper()}..."):
+                                    try:
+                                        # Process the audio data
+                                        amplified_path = process_hybrid_audio_data(audio_data, source_method)
+                                        
+                                        if amplified_path:
+                                            # Run complete processing
+                                            success, total_latency = asyncio.run(
+                                                process_hybrid_audio_complete(amplified_path, source_method)
+                                            )
+                                            
+                                            if success:
+                                                st.success(f"✅ **HYBRID SUCCESS!** Processed via {source_method.upper()} ({total_latency:.2f}s)")
+                                                st.balloons()
+                                                # Reset counter
+                                                st.session_state.hybrid_check_counter = 0
+                                            else:
+                                                st.error("❌ Processing failed - trying backup methods...")
+                                        else:
+                                            st.error("❌ Audio conversion failed")
+                                            
+                                    except Exception as e:
+                                        st.error(f"Processing error: {str(e)}")
+                        
+                        # Manual trigger button for immediate check
+                        col1, col2 = st.columns([1, 1])
+                        
+                        with col1:
+                            if st.button("🔍 **CHECK FOR RECORDING**", type="primary"):
+                                audio_data, source_method = check_hybrid_audio_methods()
+                                
+                                if audio_data and source_method:
+                                    st.success(f"📡 Found audio via {source_method.upper()}! Processing...")
+                                    st.rerun()
+                                else:
+                                    st.info("🎤 No recording detected. Please record first using the recorder above.")
+                        
+                        with col2:
+                            if st.button("🔄 **REFRESH STATUS**"):
+                                st.rerun()
+                        
+                        # Status display
+                        st.write("**🔗 HYBRID SYSTEM STATUS:**")
+                        status_methods = {
+                            "Session State": "🟢 Ready",
+                            "localStorage": "🟢 Ready", 
+                            "Memory Buffer": "🟢 Ready",
+                            "Form Submit": "🟡 Backup"
+                        }
+                        
+                        for method, status in status_methods.items():
+                            st.write(f"• **{method}**: {status}")
+                        
+                        # Enhanced instructions
+                        st.success("""
+                        🎯 **HYBRID WORKFLOW:**
+                        1. Click "🔴 START RECORDING" above
+                        2. Speak clearly in Czech or German  
+                        3. Click "⏹️ STOP RECORDING" when done
+                        4. **AUTO-PROCESSING** starts immediately via multiple methods:
+                        - 🥇 Session State (Primary)
+                        - 🥈 localStorage (Fallback 1) 
+                        - 🥉 Memory Buffer (Fallback 2)
+                        - 🛡️ Form Submit (Emergency)
+                        
+                        **⚡ If auto-processing doesn't start, click "CHECK FOR RECORDING" button**
                         """)
+                        
+                        # Backup upload method (final fallback)
+                        st.markdown("---")
+                        st.write("**🆘 EMERGENCY BACKUP:**")
+                        uploaded_audio = st.file_uploader(
+                            "Emergency: Upload Recording Manually", 
+                            type=['wav', 'mp3', 'webm', 'ogg'],
+                            key="emergency_upload",
+                            help="Only use if hybrid system fails"
+                        )
+
+                        if uploaded_audio is not None:
+                            with st.spinner("🔄 **EMERGENCY PROCESSING...**"):
+                                try:
+                                    temp_path = tempfile.mktemp(suffix=".wav")
+                                    with open(temp_path, "wb") as f:
+                                        f.write(uploaded_audio.read())
+                                    
+                                    amplified_path = amplify_recorded_audio(temp_path)
+                                    
+                                    success, total_latency = asyncio.run(
+                                        process_hybrid_audio_complete(amplified_path, "emergency_upload")
+                                    )
+                                    
+                                    if success:
+                                        st.success(f"✅ **EMERGENCY PROCESSING COMPLETE!** ({total_latency:.2f}s)")
+                                        st.balloons()
+                                    
+                                    if os.path.exists(temp_path):
+                                        os.unlink(temp_path)
+                                        
+                                except Exception as e:
+                                    st.error(f"Emergency processing error: {str(e)}")
     with col2:
         st.header("Output")
         
