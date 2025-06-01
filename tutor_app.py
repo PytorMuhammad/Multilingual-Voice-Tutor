@@ -202,7 +202,7 @@ def create_auto_processor():
         return st.components.v1.html(processor_html, height=0)
     
 def create_audio_recorder_component():
-    """Create HTML5 audio recorder with DIRECT Streamlit communication"""
+    """HTML5 recorder with DIRECT Streamlit transfer - NO DOWNLOADS"""
     html_code = """
     <div style="padding: 20px; border: 2px solid #ff4b4b; border-radius: 10px; text-align: center; background-color: #f0f2f6;">
         <div id="status" style="font-size: 18px; margin-bottom: 15px; font-weight: bold;">🎤 Ready to Record</div>
@@ -214,6 +214,9 @@ def create_audio_recorder_component():
         </button>
         
         <div id="timer" style="font-size: 14px; margin-top: 10px; color: #666;">00:00</div>
+        
+        <!-- Hidden textarea for direct data transfer -->
+        <textarea id="audioDataTransfer" style="display: none;"></textarea>
     </div>
 
     <script>
@@ -223,7 +226,6 @@ def create_audio_recorder_component():
         let recordingTime = 0;
         let timerInterval;
 
-        // Initialize when page loads
         window.onload = function() {
             initializeRecorder();
         };
@@ -251,6 +253,8 @@ def create_audio_recorder_component():
                 
                 mediaRecorder.onstop = function() {
                     const recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    
+                    // DIRECT PROCESSING - NO DOWNLOADS
                     processAudioDirectly(recordedBlob);
                 };
                 
@@ -278,17 +282,20 @@ def create_audio_recorder_component():
                 
                 // Start timer
                 timerInterval = setInterval(updateTimer, 1000);
+                
+                // Start recording
                 mediaRecorder.start(1000);
                 
             } else {
-                // Stop recording - DIRECT PROCESSING
+                // Stop recording
                 isRecording = false;
                 mediaRecorder.stop();
                 
-                recordBtn.innerHTML = '🔄 NEW RECORDING';
-                recordBtn.style.background = '#ff4b4b';
+                recordBtn.innerHTML = '🔄 PROCESSING...';
+                recordBtn.style.background = '#orange';
                 statusDiv.innerHTML = '⚡ Processing automatically...';
                 
+                // Stop timer
                 clearInterval(timerInterval);
             }
         }
@@ -301,28 +308,86 @@ def create_audio_recorder_component():
                 `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
         }
 
-        // CRITICAL: Direct Streamlit communication
-        function processAudioDirectly(audioBlob) {
+        // DIRECT AUDIO PROCESSING - THE MAGIC HAPPENS HERE
+        function processAudioDirectly(blob) {
             const reader = new FileReader();
             reader.onloadend = function() {
                 const base64Data = reader.result.split(',')[1];
                 
-                // SEND DIRECTLY TO STREAMLIT - This is the magic!
-                Streamlit.setComponentValue({
-                    audio_data: base64Data,
-                    timestamp: Date.now(),
-                    status: 'ready_for_processing'
-                });
+                // Put data directly in the hidden textarea
+                document.getElementById('audioDataTransfer').value = base64Data;
                 
-                document.getElementById('status').innerHTML = '✅ Sent to AI - Processing now...';
+                // Trigger Streamlit update by dispatching event
+                document.getElementById('audioDataTransfer').dispatchEvent(new Event('input', { bubbles: true }));
+                
+                // Update status
+                document.getElementById('status').innerHTML = '✅ Audio captured! Processing...';
+                document.getElementById('recordBtn').innerHTML = '🔄 NEW RECORDING';
+                document.getElementById('recordBtn').style.background = '#ff4b4b';
+                
+                console.log('Audio data ready for Streamlit:', base64Data.substring(0, 50) + '...');
             };
-            reader.readAsDataURL(audioBlob);
+            reader.readAsDataURL(blob);
         }
     </script>
     """
     
-    # CRITICAL: Return component value for automatic processing
     return st.components.v1.html(html_code, height=200)
+
+def check_direct_audio_transfer():
+    """Check for direct audio transfer and process automatically"""
+    # This will be called when the component updates
+    try:
+        # Get the component's return value (the base64 audio data)
+        component_value = st.session_state.get('audio_component_key', '')
+        
+        if component_value and len(component_value) > 100:  # Valid audio data
+            with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
+                try:
+                    # Process the audio data directly
+                    temp_audio_path = process_html5_audio_data(component_value)
+                    
+                    if temp_audio_path:
+                        # Apply amplification and process through the full pipeline
+                        amplified_path = amplify_recorded_audio(temp_audio_path)
+                        
+                        # Process with enhanced pipeline
+                        text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(
+                            process_voice_input_pronunciation_enhanced(amplified_path)
+                        )
+                        
+                        # Store results
+                        if text:
+                            st.session_state.last_text_input = text
+                        if audio_output_path:
+                            st.session_state.last_audio_output = audio_output_path
+                        
+                        # Show results
+                        total_latency = stt_latency + llm_latency + tts_latency
+                        st.success(f"✅ **AUTOMATIC PROCESSING COMPLETE!** ({total_latency:.2f}s)")
+                        st.balloons()
+                        
+                        # Clean up
+                        if os.path.exists(temp_audio_path):
+                            os.unlink(temp_audio_path)
+                        if amplified_path != temp_audio_path and os.path.exists(amplified_path):
+                            os.unlink(amplified_path)
+                        
+                        # Clear the processed data
+                        st.session_state.audio_component_key = ''
+                        
+                        return True
+                        
+                except Exception as e:
+                    st.error(f"Processing error: {str(e)}")
+                    return False
+                    
+    except Exception as e:
+        # Silent fail - no audio data yet
+        pass
+    
+    return False
+
 
 def convert_webm_to_wav(webm_path):
     """Convert WebM audio to WAV format"""
@@ -2939,7 +3004,7 @@ def main():
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
         else:
-                    # Voice input - METHOD 2: Direct Streamlit Communication
+                    # Voice input - DIRECT PROCESSING (NO DOWNLOADS)
                     st.subheader("🎤 Professional Voice Recording")
                     
                     # Check if API keys are set
@@ -2951,76 +3016,31 @@ def main():
                     if not keys_set:
                         st.warning("Please set both API keys in the sidebar first")
                     else:
-                        st.write("🎯 **Direct Audio Processing** - Zero Manual Steps")
+                        st.write("🎯 **Direct Audio Processing** - No Downloads Needed!")
                         
-                        # Create the HTML5 audio recorder with direct communication
-                        audio_component_data = create_audio_recorder_component()
+                        # Create the recorder with direct transfer
+                        audio_data = create_audio_recorder_component()
                         
-                        # AUTOMATIC PROCESSING when audio data received
-                        if audio_component_data and isinstance(audio_component_data, dict):
-                            if audio_component_data.get('status') == 'ready_for_processing':
-                                audio_data = audio_component_data.get('audio_data')
-                                
-                                if audio_data and 'processing_audio' not in st.session_state:
-                                    st.session_state.processing_audio = True
-                                    
-                                    with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
-                                        try:
-                                            # Process the base64 audio data directly
-                                            temp_audio_path = process_html5_audio_data(audio_data)
-                                            
-                                            if temp_audio_path:
-                                                # Apply amplification
-                                                amplified_path = amplify_recorded_audio(temp_audio_path)
-                                                
-                                                # Process with enhanced pipeline
-                                                text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                                    process_voice_input_pronunciation_enhanced(amplified_path)
-                                                )
-                                                
-                                                # Store results
-                                                if text:
-                                                    st.session_state.last_text_input = text
-                                                if audio_output_path:
-                                                    st.session_state.last_audio_output = audio_output_path
-                                                
-                                                # Show results
-                                                total_latency = stt_latency + llm_latency + tts_latency
-                                                st.success(f"✅ **AUTOMATIC PROCESSING COMPLETE!** ({total_latency:.2f}s)")
-                                                st.balloons()
-                                                
-                                                # Clean up
-                                                if os.path.exists(temp_audio_path):
-                                                    os.unlink(temp_audio_path)
-                                                if amplified_path != temp_audio_path and os.path.exists(amplified_path):
-                                                    os.unlink(amplified_path)
-                                                    
-                                            else:
-                                                st.error("Failed to process audio data")
-                                                
-                                        except Exception as e:
-                                            st.error(f"Processing error: {str(e)}")
-                                        
-                                        finally:
-                                            # Reset processing flag
-                                            if 'processing_audio' in st.session_state:
-                                                del st.session_state.processing_audio
-                                            
-                                            # Force rerun to reset component
-                                            st.rerun()
-
-                        # Enhanced instructions
+                        # Store component data in session state
+                        if audio_data:
+                            st.session_state.audio_component_key = audio_data
+                        
+                        # Check for and process audio automatically
+                        success = check_direct_audio_transfer()
+                        
+                        if success:
+                            st.rerun()  # Refresh to show results
+                        
+                        # Instructions
                         st.success("""
-                        🎯 **COMPLETELY AUTOMATIC WORKFLOW:**
-                        1. Click "🔴 START RECORDING" above
+                        🎯 **DIRECT WORKFLOW:**
+                        1. Click "🔴 START RECORDING"
                         2. Speak clearly in Czech or German  
-                        3. Click "⏹️ STOP RECORDING" when done
-                        4. **THAT'S IT!** - Everything else happens automatically
+                        3. Click "⏹️ STOP RECORDING" 
+                        4. **AUTOMATIC PROCESSING** - No downloads needed!
 
-                        **⚡ Total experience: Record → Stop → Get Results!**
+                        **⚡ Everything happens automatically!**
                         """)
-                        
-                        st.info("✅ **Zero Manual Steps** - Your audio is processed instantly when you stop recording!")
     with col2:
         st.header("Output")
         
