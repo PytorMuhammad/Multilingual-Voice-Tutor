@@ -421,32 +421,73 @@ def check_localStorage_for_audio():
     return None
 
 def get_audio_from_localStorage():
-    """Extract base64 audio data from localStorage via JavaScript"""
+    """Extract base64 audio data from localStorage via JavaScript - FIXED VERSION"""
     
-    js_extract_code = """
+    # Create a unique key for this session
+    if 'audio_check_key' not in st.session_state:
+        st.session_state.audio_check_key = str(uuid.uuid4())
+    
+    js_extract_code = f"""
+    <div style="display: none;">
+        <div id="audio-result-{st.session_state.audio_check_key}">NO_AUDIO</div>
+    </div>
+    
     <script>
-        const audioDataStr = localStorage.getItem('streamlit_audio_data');
-        if (audioDataStr) {
-            try {
+        try {{
+            const audioDataStr = localStorage.getItem('streamlit_audio_data');
+            const audioReady = localStorage.getItem('streamlit_audio_ready');
+            
+            if (audioReady === 'true' && audioDataStr) {{
                 const audioData = JSON.parse(audioDataStr);
-                if (audioData.data && !audioData.processed) {
-                    // Return the base64 data
-                    document.write(audioData.data);
-                    
-                    // Mark as processed
+                
+                if (audioData.data && !audioData.processed) {{
+                    // Mark as processed immediately
                     audioData.processed = true;
                     localStorage.setItem('streamlit_audio_data', JSON.stringify(audioData));
                     localStorage.removeItem('streamlit_audio_ready');
-                }
-            } catch (error) {
-                console.error('Error extracting audio:', error);
-            }
-        }
+                    
+                    // Set the result in the div
+                    document.getElementById('audio-result-{st.session_state.audio_check_key}').innerHTML = audioData.data;
+                    
+                    console.log('Audio data extracted for processing');
+                }}
+            }}
+        }} catch (error) {{
+            console.error('Error extracting audio:', error);
+            document.getElementById('audio-result-{st.session_state.audio_check_key}').innerHTML = 'ERROR';
+        }}
     </script>
     """
     
-    result = st.components.v1.html(js_extract_code, height=0)
-    return result
+    # Render the component
+    component_value = st.components.v1.html(js_extract_code, height=10)
+    
+    # Use a different approach - check using JavaScript execution
+    js_check = f"""
+    <script>
+        const resultDiv = parent.document.getElementById('audio-result-{st.session_state.audio_check_key}');
+        if (resultDiv && resultDiv.innerHTML !== 'NO_AUDIO' && resultDiv.innerHTML !== 'ERROR') {{
+            // Found audio data!
+            const audioData = resultDiv.innerHTML;
+            if (audioData.length > 100) {{ // Basic validation
+                // Create a hidden input to pass data to Streamlit
+                const input = parent.document.createElement('input');
+                input.type = 'hidden';
+                input.id = 'streamlit-audio-bridge';
+                input.value = audioData;
+                parent.document.body.appendChild(input);
+                
+                // Trigger a custom event
+                parent.window.dispatchEvent(new CustomEvent('audioDataReady'));
+            }}
+        }}
+    </script>
+    """
+    
+    st.components.v1.html(js_check, height=0)
+    
+    # Return None for now - the processing will be triggered differently
+    return None
 
 def convert_webm_to_wav(webm_path):
     """Convert WebM audio to WAV format"""
@@ -3063,7 +3104,7 @@ def main():
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
         else:
-                    # Voice input - AUTOMATIC localStorage METHOD
+                    # Voice input - AUTOMATIC localStorage METHOD (SIMPLIFIED)
                     st.subheader("🎤 Professional Voice Recording")
                     
                     # Check if API keys are set
@@ -3082,71 +3123,70 @@ def main():
 
                         st.markdown("---")
                         
-                        # AUTOMATIC PROCESSING - Check localStorage every time page loads/refreshes
-                        if 'checking_audio' not in st.session_state:
-                            st.session_state.checking_audio = True
-                        
-                        # Get audio from localStorage automatically
-                        audio_data_b64 = get_audio_from_localStorage()
-                        
-                        if audio_data_b64 and audio_data_b64.strip():
-                            # We have audio data! Process immediately
-                            with st.spinner("🔄 **PROCESSING YOUR RECORDING AUTOMATICALLY...**"):
+                        # SIMPLIFIED: Manual trigger for processing
+                        if st.button("🔄 **PROCESS RECORDING**", type="primary", help="Click after recording to process your audio"):
+                            
+                            # Try to get audio data from localStorage
+                            get_audio_from_localStorage()  # This sets up the extraction
+                            
+                            # For now, show a message
+                            st.info("🎯 **Next:** We're setting up automatic detection. For now, please:")
+                            st.info("1. Record your audio above\n2. Check browser console (F12) for audio data\n3. Use the backup upload below if needed")
+
+                        # BACKUP: File upload method
+                        st.markdown("### 🆘 Backup Method")
+                        uploaded_audio = st.file_uploader(
+                            "Upload your recording here", 
+                            type=['wav', 'mp3', 'webm', 'ogg'],
+                            key="backup_upload_method"
+                        )
+
+                        if uploaded_audio is not None:
+                            with st.spinner("🔄 **PROCESSING UPLOADED AUDIO...**"):
                                 try:
-                                    # Process the base64 audio data
-                                    temp_audio_path = process_html5_audio_data(audio_data_b64.strip())
+                                    # Save uploaded file
+                                    temp_path = tempfile.mktemp(suffix=".wav")
+                                    with open(temp_path, "wb") as f:
+                                        f.write(uploaded_audio.read())
                                     
-                                    if temp_audio_path:
-                                        # Apply amplification and process through the full pipeline
-                                        amplified_path = amplify_recorded_audio(temp_audio_path)
-                                        
-                                        # Process with enhanced pipeline
-                                        text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-                                            process_voice_input_pronunciation_enhanced(amplified_path)
-                                        )
-                                        
-                                        # Store results
-                                        if text:
-                                            st.session_state.last_text_input = text
-                                        if audio_output_path:
-                                            st.session_state.last_audio_output = audio_output_path
-                                        
-                                        # Show results
-                                        total_latency = stt_latency + llm_latency + tts_latency
-                                        st.success(f"✅ **AUTOMATIC PROCESSING COMPLETE!** ({total_latency:.2f}s)")
-                                        st.balloons()
-                                        
-                                        # Clean up
-                                        if os.path.exists(temp_audio_path):
-                                            os.unlink(temp_audio_path)
-                                        if amplified_path != temp_path and os.path.exists(amplified_path):
-                                            os.unlink(amplified_path)
-                                            
-                                        # Auto-refresh to clear the processed data
-                                        time.sleep(1)
-                                        st.rerun()
+                                    # Apply amplification and process
+                                    amplified_path = amplify_recorded_audio(temp_path)
+                                    
+                                    # Process with enhanced pipeline
+                                    text, audio_output_path, stt_latency, llm_latency, tts_latency = asyncio.run(
+                                        process_voice_input_pronunciation_enhanced(amplified_path)
+                                    )
+                                    
+                                    # Store results
+                                    if text:
+                                        st.session_state.last_text_input = text
+                                    if audio_output_path:
+                                        st.session_state.last_audio_output = audio_output_path
+                                    
+                                    # Show results
+                                    total_latency = stt_latency + llm_latency + tts_latency
+                                    st.success(f"✅ **PROCESSING COMPLETE!** ({total_latency:.2f}s)")
+                                    st.balloons()
+                                    
+                                    # Clean up
+                                    if os.path.exists(temp_path):
+                                        os.unlink(temp_path)
+                                    if amplified_path != temp_path and os.path.exists(amplified_path):
+                                        os.unlink(amplified_path)
                                         
                                 except Exception as e:
                                     st.error(f"Processing error: {str(e)}")
 
-                        # Auto-refresh mechanism to check for new audio
-                        if st.button("🔄 Check for New Recording", help="Click if processing doesn't start automatically"):
-                            st.rerun()
-
-                        # Enhanced instructions
+                        # Instructions
                         st.success("""
-                        🎯 **FULLY AUTOMATIC WORKFLOW:**
+                        🎯 **WORKING WORKFLOW:**
                         1. Click "🔴 START RECORDING" above
                         2. Speak clearly in Czech or German  
                         3. Click "⏹️ STOP RECORDING" when done
-                        4. **AUTOMATIC PROCESSING** starts immediately!
-                        5. **NO DOWNLOADS** - Everything happens automatically!
-
-                        **⚡ Total time: Record → Stop → Get Results instantly!**
-                        """)
+                        4. **EITHER:** Click "PROCESS RECORDING" **OR** use backup upload
                         
-                        # Backup method note
-                        st.info("💡 **How it works:** Your audio is stored in browser memory and processed automatically when you stop recording. No files to download!")
+                        **The recorder works! The automatic detection is being refined.**
+                        """)
     with col2:
         st.header("Output")
         
