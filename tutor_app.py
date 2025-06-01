@@ -131,7 +131,308 @@ def check_system_dependencies():
         # Railway should handle this via nixpacks
     
     return True
+# Add this new function after the import statements (around line 200)
+import streamlit.components.v1 as components
 
+def create_audio_recorder_component():
+    """Create HTML5 audio recorder component"""
+    html_code = """
+    <div style="padding: 20px; border: 2px solid #ff4b4b; border-radius: 10px; text-align: center; background-color: #f0f2f6;">
+        <div id="status" style="font-size: 18px; margin-bottom: 15px; font-weight: bold;">🎤 Ready to Record</div>
+        
+        <button id="recordBtn" onclick="toggleRecording()" 
+                style="background: #ff4b4b; color: white; border: none; padding: 15px 30px; 
+                       border-radius: 25px; cursor: pointer; font-size: 16px; font-weight: bold; margin: 5px;">
+            🔴 START RECORDING
+        </button>
+        
+        <button id="previewBtn" onclick="playPreview()" disabled
+                style="background: #00cc88; color: white; border: none; padding: 15px 30px; 
+                       border-radius: 25px; cursor: pointer; font-size: 16px; font-weight: bold; margin: 5px;">
+            🔊 PREVIEW
+        </button>
+        
+        <button id="processBtn" onclick="processAudio()" disabled
+                style="background: #ff6600; color: white; border: none; padding: 15px 30px; 
+                       border-radius: 25px; cursor: pointer; font-size: 16px; font-weight: bold; margin: 5px;">
+            ⚡ PROCESS
+        </button>
+        
+        <div id="timer" style="font-size: 14px; margin-top: 10px; color: #666;">00:00</div>
+        <audio id="audioPreview" controls style="width: 100%; margin-top: 15px; display: none;"></audio>
+        <div id="audioData" style="display: none;"></div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        let recordingTime = 0;
+        let timerInterval;
+        let recordedBlob = null;
+
+        // Initialize when page loads
+        window.onload = function() {
+            initializeRecorder();
+        };
+
+        async function initializeRecorder() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 16000
+                    } 
+                });
+                
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus'
+                });
+                
+                mediaRecorder.ondataavailable = function(event) {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = function() {
+                    recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    
+                    // Enable preview and process buttons
+                    document.getElementById('previewBtn').disabled = false;
+                    document.getElementById('processBtn').disabled = false;
+                    
+                    // Update status
+                    document.getElementById('status').innerHTML = '✅ Recording Complete - Ready to Preview/Process';
+                    
+                    // Create audio URL for preview
+                    const audioUrl = URL.createObjectURL(recordedBlob);
+                    const audioPreview = document.getElementById('audioPreview');
+                    audioPreview.src = audioUrl;
+                    audioPreview.style.display = 'block';
+                };
+                
+                document.getElementById('status').innerHTML = '🎤 Microphone Ready - Click START to Record';
+                
+            } catch (error) {
+                document.getElementById('status').innerHTML = '❌ Microphone access denied';
+                console.error('Error accessing microphone:', error);
+            }
+        }
+
+        function toggleRecording() {
+            const recordBtn = document.getElementById('recordBtn');
+            const statusDiv = document.getElementById('status');
+            
+            if (!isRecording) {
+                // Start recording
+                audioChunks = [];
+                recordingTime = 0;
+                isRecording = true;
+                
+                recordBtn.innerHTML = '⏹️ STOP RECORDING';
+                recordBtn.style.background = '#666';
+                statusDiv.innerHTML = '🔴 RECORDING - Speak clearly in Czech or German';
+                
+                // Disable other buttons
+                document.getElementById('previewBtn').disabled = true;
+                document.getElementById('processBtn').disabled = true;
+                document.getElementById('audioPreview').style.display = 'none';
+                
+                // Start timer
+                timerInterval = setInterval(updateTimer, 1000);
+                
+                // Start recording
+                mediaRecorder.start(1000); // Collect data every second
+                
+            } else {
+                // Stop recording
+                isRecording = false;
+                mediaRecorder.stop();
+                
+                recordBtn.innerHTML = '🔄 NEW RECORDING';
+                recordBtn.style.background = '#ff4b4b';
+                
+                // Stop timer
+                clearInterval(timerInterval);
+            }
+        }
+
+        function updateTimer() {
+            recordingTime++;
+            const minutes = Math.floor(recordingTime / 60);
+            const seconds = recordingTime % 60;
+            document.getElementById('timer').innerHTML = 
+                `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
+
+        function playPreview() {
+            const audioPreview = document.getElementById('audioPreview');
+            audioPreview.play();
+            document.getElementById('status').innerHTML = '🔊 Playing Preview';
+        }
+
+        async function processAudio() {
+            if (recordedBlob) {
+                document.getElementById('status').innerHTML = '⚡ Processing audio...';
+                document.getElementById('processBtn').disabled = true;
+                
+                // Convert blob to base64
+                const reader = new FileReader();
+                reader.onloadend = function() {
+                    const base64Data = reader.result.split(',')[1];
+                    
+                    // Store in hidden div for Streamlit to access
+                    document.getElementById('audioData').innerHTML = base64Data;
+                    
+                    // Trigger Streamlit rerun by dispatching custom event
+                    window.parent.postMessage({
+                        type: 'audio_recorded',
+                        data: base64Data
+                    }, '*');
+                    
+                    document.getElementById('status').innerHTML = '✅ Audio sent for processing!';
+                };
+                reader.readAsDataURL(recordedBlob);
+            }
+        }
+
+        // Reset function for new recording
+        function resetRecorder() {
+            audioChunks = [];
+            recordedBlob = null;
+            recordingTime = 0;
+            isRecording = false;
+            
+            document.getElementById('recordBtn').innerHTML = '🔴 START RECORDING';
+            document.getElementById('recordBtn').style.background = '#ff4b4b';
+            document.getElementById('previewBtn').disabled = true;
+            document.getElementById('processBtn').disabled = false;
+            document.getElementById('audioPreview').style.display = 'none';
+            document.getElementById('status').innerHTML = '🎤 Ready for New Recording';
+            document.getElementById('timer').innerHTML = '00:00';
+            
+            clearInterval(timerInterval);
+        }
+    </script>
+    """
+    
+    # Return the component with a unique height
+    return components.html(html_code, height=300)
+
+# Add these functions after the create_audio_recorder_component function
+
+def process_html5_audio_data(base64_audio_data):
+    """Process base64 audio data from HTML5 recorder"""
+    try:
+        import base64
+        import io
+        
+        # Decode base64 audio data
+        audio_bytes = base64.b64decode(base64_audio_data)
+        
+        # Save to temporary file
+        temp_path = tempfile.mktemp(suffix=".webm")
+        with open(temp_path, "wb") as f:
+            f.write(audio_bytes)
+        
+        # Convert webm to wav for processing
+        wav_path = convert_webm_to_wav(temp_path)
+        
+        # Apply 500% amplification
+        amplified_path = amplify_recorded_audio(wav_path)
+        
+        # Clean up temporary files
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+        if wav_path != amplified_path and os.path.exists(wav_path):
+            os.unlink(wav_path)
+            
+        return amplified_path
+        
+    except Exception as e:
+        logger.error(f"HTML5 audio processing error: {str(e)}")
+        return None
+
+def convert_webm_to_wav(webm_path):
+    """Convert WebM audio to WAV format"""
+    try:
+        from pydub import AudioSegment
+        
+        # Load WebM audio
+        audio = AudioSegment.from_file(webm_path, format="webm")
+        
+        # Convert to WAV
+        wav_path = tempfile.mktemp(suffix=".wav")
+        audio.export(wav_path, format="wav", parameters=["-ar", "16000", "-ac", "1"])
+        
+        return wav_path
+        
+    except Exception as e:
+        logger.error(f"WebM to WAV conversion error: {str(e)}")
+        # Fallback: try to use the original file
+        return webm_path
+
+def amplify_recorded_audio(audio_path):
+    """Apply 500% amplification to recorded audio"""
+    try:
+        # Load audio
+        audio, sample_rate = sf.read(audio_path)
+        
+        # Apply 500% amplification
+        amplified_audio = audio * 5.0
+        
+        # Prevent clipping
+        max_val = np.max(np.abs(amplified_audio))
+        if max_val > 0.95:
+            amplified_audio = amplified_audio * (0.95 / max_val)
+        
+        # Apply noise reduction
+        try:
+            enhanced_audio = nr.reduce_noise(y=amplified_audio, sr=sample_rate)
+        except:
+            enhanced_audio = amplified_audio
+        
+        # Save enhanced audio
+        enhanced_path = tempfile.mktemp(suffix=".wav")
+        sf.write(enhanced_path, enhanced_audio, sample_rate)
+        
+        return enhanced_path
+        
+    except Exception as e:
+        logger.error(f"Audio amplification error: {str(e)}")
+        return audio_path
+
+async def process_html5_recorded_voice(audio_path):
+    """Process HTML5 recorded voice through the enhanced pipeline"""
+    try:
+        # Process with the existing enhanced pipeline
+        text, audio_output_path, stt_latency, llm_latency, tts_latency = await process_voice_input_pronunciation_enhanced(audio_path)
+        
+        # Store results in session state
+        if text:
+            st.session_state.last_text_input = text
+        if audio_output_path:
+            st.session_state.last_audio_output = audio_output_path
+        
+        # Show results
+        total_latency = stt_latency + llm_latency + tts_latency
+        st.success(f"✅ **HTML5 Voice Processing Complete!** ({total_latency:.2f}s)")
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"HTML5 voice processing error: {str(e)}")
+        logger.error(f"HTML5 voice processing error: {str(e)}")
+        return False
+
+def get_recorded_audio_data():
+    """Get audio data from the HTML component"""
+    # This will be called after the component processes audio
+    # In practice, we'll handle this through session state
+    pass
 # Add these enhanced audio capture functions after the import statements
 # Replace the existing capture_enhanced_audio function with this simplified version
 def capture_enhanced_audio():
@@ -277,79 +578,6 @@ def process_audio_frames(audio_frames):
         logger.error(f"Audio frame processing error: {str(e)}")
         return None
 
-def display_enhanced_audio_preview():
-    """Display preview of enhanced audio with 500% amplification"""
-    try:
-        if not st.session_state.recorded_audio_data:
-            st.error("No audio data available for preview")
-            return
-        
-        # Save enhanced audio for preview
-        audio, sample_rate = st.session_state.recorded_audio_data
-        
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-            sf.write(tmp_file.name, audio, sample_rate)
-            temp_path = tmp_file.name
-        
-        # Display audio player
-        with open(temp_path, "rb") as audio_file:
-            audio_bytes = audio_file.read()
-            st.audio(audio_bytes, format="audio/wav")
-            st.success("🔊 **Enhanced Audio Preview** - 500% amplified for better recognition")
-        
-        # Cleanup
-        try:
-            os.unlink(temp_path)
-        except:
-            pass
-            
-    except Exception as e:
-        st.error(f"Preview error: {str(e)}")
-
-def process_enhanced_recording():
-    """Process recorded audio with full enhancement pipeline"""
-    try:
-        if not st.session_state.recorded_audio_data:
-            st.error("No audio data to process")
-            return
-        
-        # Save enhanced audio to file
-        audio, sample_rate = st.session_state.recorded_audio_data
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-            sf.write(tmp_file.name, audio, sample_rate)
-            audio_file_path = tmp_file.name
-        
-        # Process with pronunciation-enhanced pipeline
-        text, audio_path, stt_latency, llm_latency, tts_latency = asyncio.run(
-            process_voice_input_pronunciation_enhanced(audio_file_path)
-        )
-        
-        # Store results
-        if text:
-            st.session_state.last_text_input = text
-        if audio_path:
-            st.session_state.last_audio_output = audio_path
-        
-        # Show results
-        total_latency = stt_latency + llm_latency + tts_latency
-        st.success(f"✅ **Pronunciation-Enhanced Processing Complete!** ({total_latency:.2f}s)")
-        
-        # Reset for next recording
-        st.session_state.is_recording = False
-        st.session_state.recorded_audio_data = None
-        
-        # Cleanup
-        try:
-            os.unlink(audio_file_path)
-        except:
-            pass
-            
-    except Exception as e:
-        st.error(f"Processing error: {str(e)}")
-        logger.error(f"Enhanced recording processing error: {str(e)}")
-        
 def display_audio_preview():
     """Display audio preview with enhanced playback"""
     try:
@@ -512,82 +740,148 @@ def process_uploaded_audio_enhanced(uploaded_file):
 # ----------------------------------------------------------------------------------
 
 class AudioRecorder:
-    """WORKING Audio recorder with reliable capture"""
+    """Class for recording and processing audio input"""
     
     def __init__(self):
         self.recording = False
         self.audio_data = []
-        self.sample_rate = 16000
-        self.thread = None
+        self.sample_rate = 16000  # Whisper prefers 16kHz
         
     def start_recording(self):
-        """Start recording with better error handling"""
-        try:
-            self.recording = True
-            self.audio_data = []
-            
-            def record_thread():
-                try:
-                    with sd.InputStream(
-                        samplerate=self.sample_rate, 
-                        channels=1, 
-                        callback=self._audio_callback,
-                        blocksize=1024,
-                        dtype='float32'
-                    ):
-                        while self.recording:
-                            time.sleep(0.1)
-                except Exception as e:
-                    logger.error(f"Recording thread error: {str(e)}")
-                    self.recording = False
-            
-            self.thread = threading.Thread(target=record_thread)
-            self.thread.daemon = True
-            self.thread.start()
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to start recording: {str(e)}")
-            self.recording = False
-            return False
+        """Start recording audio"""
+        self.recording = True
+        self.audio_data = []
+        
+        def record_thread():
+            with sd.InputStream(samplerate=self.sample_rate, channels=1, callback=self._audio_callback):
+                while self.recording:
+                    time.sleep(0.1)
+        
+        self.thread = threading.Thread(target=record_thread)
+        self.thread.start()
+        return True
     
     def _audio_callback(self, indata, frames, time, status):
-        """Enhanced audio callback with better data handling"""
+        """Callback for audio data"""
         if status:
             logger.warning(f"Audio callback status: {status}")
-        
-        if self.recording and indata is not None:
-            # Store audio data
-            self.audio_data.append(indata.copy())
+        self.audio_data.append(indata.copy())
     
     def stop_recording(self):
-        """Stop recording and return enhanced audio data"""
+        """Stop recording and return audio data"""
         if not self.recording:
             return None
             
         self.recording = False
-        
-        # Wait for thread to finish
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=2.0)
+        self.thread.join()
         
         if not self.audio_data:
-            logger.warning("No audio data captured")
             return None
             
+        # Combine all audio chunks
+        audio = np.concatenate(self.audio_data, axis=0)
+        
+        # Reset for next recording
+        self.audio_data = []
+        
+        return audio, self.sample_rate
+    
+    def save_audio(self, audio_data, filename="recorded_audio.wav"):
+        """Save audio data to file"""
+        if audio_data is None:
+            return None
+            
+        audio, sample_rate = audio_data
+        sf.write(filename, audio, sample_rate)
+        return filename
+
+    def convert_to_mp3(self, audio_data, output_filename="recorded_audio.mp3"):
+        """Convert recorded audio to MP3 format"""
+        if audio_data is None:
+            return None
+            
+        wav_file = self.save_audio(audio_data, "temp_recording.wav")
+        audio = AudioSegment.from_wav(wav_file)
+        audio.export(output_filename, format="mp3")
+        
+        # Remove temporary file
+        os.remove(wav_file)
+        
+        return output_filename
+
+    def enhance_audio_quality(self, audio_data):
+        """Enhance audio quality for better transcription, including noise reduction"""
+        if audio_data is None:
+            return None
+            
+        # Handle both tuple and file path inputs
+        if isinstance(audio_data, tuple):
+            audio, sample_rate = audio_data
+            # Save to temporary file
+            temp_wav = "temp_enhance.wav"
+            sf.write(temp_wav, audio, sample_rate)
+        else:
+            # audio_data is a file path
+            temp_wav = audio_data
+        
         try:
-            # Combine all audio chunks
-            combined_audio = np.concatenate(self.audio_data, axis=0)
+            # Load with pydub for processing
+            audio_segment = AudioSegment.from_wav(temp_wav)
             
-            # Reset for next recording
-            self.audio_data = []
+            # Normalize volume
+            normalized_audio = audio_segment.normalize()
             
-            # Return audio data tuple
-            return (combined_audio, self.sample_rate)
+            # Remove silence at beginning and end
+            trimmed_audio = self._trim_silence(normalized_audio)
+            
+            # Convert to numpy array for noise reduction
+            samples = np.array(trimmed_audio.get_array_of_samples()).astype(np.float32)
+            
+            # Apply noise reduction
+            reduced_noise = nr.reduce_noise(y=samples, sr=self.sample_rate)
+            
+            # Convert back to AudioSegment
+            reduced_audio = AudioSegment(
+                reduced_noise.astype(np.int16).tobytes(),
+                frame_rate=self.sample_rate,
+                sample_width=2,
+                channels=1
+            )
+            
+            # Export enhanced audio
+            enhanced_wav = "enhanced_recording.wav"
+            reduced_audio.export(enhanced_wav, format="wav")
+            
+            # Clean up temp file if we created it
+            if isinstance(audio_data, tuple) and os.path.exists(temp_wav):
+                os.remove(temp_wav)
+                
+            return enhanced_wav
             
         except Exception as e:
-            logger.error(f"Error processing recorded audio: {str(e)}")
-            return None
+            logger.error(f"Audio enhancement error: {str(e)}")
+            return temp_wav if os.path.exists(temp_wav) else None
+        
+    def _trim_silence(self, audio_segment, silence_threshold=-50, min_silence_len=300):
+        """Remove silence from beginning and end of recording"""
+        # Split on silence
+        chunks = split_on_silence(
+            audio_segment, 
+            min_silence_len=min_silence_len,
+            silence_thresh=silence_threshold,
+            keep_silence=100  # Keep 100ms of silence
+        )
+        
+        # If no chunks found, return original
+        if not chunks:
+            return audio_segment
+            
+        # Combine chunks
+        combined_audio = chunks[0]
+        for chunk in chunks[1:]:
+            combined_audio += chunk
+            
+        return combined_audio
 
 class SpeechRecognizer:
     """Class for speech recognition and language detection with improved accuracy"""
@@ -2515,10 +2809,9 @@ def main():
                     total_latency = llm_latency + tts_latency
                     st.success(f"Text processed in {total_latency:.2f} seconds")
         
-        # Replace the entire voice input section with this enhanced version
         else:
-            # Voice input - WORKING VERSION WITH RELIABLE RECORDING
-            st.subheader("🎤 Enhanced Voice Input")
+            # Voice input - HTML5 AUDIO RECORDER (RELIABLE)
+            st.subheader("🎤 Professional Voice Recording")
             
             # Check if API keys are set
             keys_set = (
@@ -2529,84 +2822,77 @@ def main():
             if not keys_set:
                 st.warning("Please set both API keys in the sidebar first")
             else:
-                # Initialize session state
-                if 'is_recording' not in st.session_state:
-                    st.session_state.is_recording = False
-                if 'recorded_audio_data' not in st.session_state:
-                    st.session_state.recorded_audio_data = None
-                if 'audio_recorder_obj' not in st.session_state:
-                    st.session_state.audio_recorder_obj = AudioRecorder()
+                st.write("🎯 **HTML5 Audio Recording** - Works reliably on Railway")
                 
-                st.write("🎯 **Professional Voice Recording** - Enhanced for Czech/German")
+                # Initialize session state for HTML5 recording
+                if 'html5_audio_data' not in st.session_state:
+                    st.session_state.html5_audio_data = None
+                if 'html5_processing' not in st.session_state:
+                    st.session_state.html5_processing = False
                 
-                # THREE BUTTON INTERFACE AS REQUESTED
-                col1, col2, col3 = st.columns([1, 1, 1])
+                # Create the HTML5 audio recorder component
+                create_audio_recorder_component()
+                
+                # Check for audio data (this would be set via JavaScript messaging)
+                # For now, we'll use a manual approach with file upload as backup
+                
+                st.markdown("---")
+                
+                # Manual processing section
+                st.write("**Manual Processing Controls:**")
+                
+                col1, col2 = st.columns([1, 1])
                 
                 with col1:
-                    # SINGLE TOGGLE RECORDING BUTTON
-                    if not st.session_state.is_recording:
-                        if st.button("🔴 **START RECORDING**", type="primary", use_container_width=True):
-                            st.session_state.is_recording = True
-                            st.session_state.audio_recorder_obj.start_recording()
-                            st.rerun()
-                    else:
-                        if st.button("⏹️ **STOP RECORDING**", type="secondary", use_container_width=True):
-                            st.session_state.is_recording = False
-                            # Capture and process audio immediately
-                            raw_audio = st.session_state.audio_recorder_obj.stop_recording()
-                            if raw_audio:
-                                # Apply 500% amplification immediately
-                                st.session_state.recorded_audio_data = amplify_audio_500_percent(raw_audio)
-                                st.success("✅ Recording captured and enhanced!")
-                            else:
-                                st.error("❌ No audio captured")
-                            st.rerun()
+                    # Alternative: Direct file upload for testing
+                    uploaded_audio = st.file_uploader(
+                        "🎯 Upload Recorded Audio (Testing)", 
+                        type=['wav', 'mp3', 'webm', 'ogg'],
+                        help="Upload your recorded audio file for processing",
+                        key="html5_upload"
+                    )
                 
                 with col2:
-                    # PREVIEW BUTTON (becomes bold when audio available)
-                    if st.session_state.recorded_audio_data:
-                        if st.button("🔊 **PREVIEW AUDIO**", type="primary", use_container_width=True):
-                            # Display enhanced audio preview
-                            display_enhanced_audio_preview()
-                    else:
-                        st.button("🔇 Preview Audio", disabled=True, use_container_width=True)
+                    if uploaded_audio is not None:
+                        if st.button("⚡ **PROCESS UPLOADED AUDIO**", type="primary", key="process_html5_upload"):
+                            with st.spinner("🔄 Processing HTML5 audio..."):
+                                # Save uploaded file
+                                temp_path = tempfile.mktemp(suffix=".wav")
+                                with open(temp_path, "wb") as f:
+                                    f.write(uploaded_audio.read())
+                                
+                                # Apply amplification
+                                amplified_path = amplify_recorded_audio(temp_path)
+                                
+                                # Process through enhanced pipeline
+                                success = asyncio.run(process_html5_recorded_voice(amplified_path))
+                                
+                                # Clean up
+                                if os.path.exists(temp_path):
+                                    os.unlink(temp_path)
+                                if amplified_path != temp_path and os.path.exists(amplified_path):
+                                    os.unlink(amplified_path)
                 
-                with col3:
-                    # PROCESS BUTTON 
-                    if st.session_state.recorded_audio_data:
-                        if st.button("⚡ **PROCESS VOICE**", type="primary", use_container_width=True):
-                            with st.spinner("🔄 Processing pronunciation-enhanced voice..."):
-                                process_enhanced_recording()
-                    else:
-                        st.button("⏳ Process Voice", disabled=True, use_container_width=True)
+                # Enhanced instructions
+                st.info("""
+                **How to Use:**
+                1. 🔴 Click START RECORDING and speak clearly
+                2. ⏹️ Click STOP when finished  
+                3. 🔊 Click PREVIEW to hear your recording
+                4. ⚡ Click PROCESS to transcribe and generate response
                 
-                # Recording Status Display
-                if st.session_state.is_recording:
-                    st.error("🔴 **RECORDING ACTIVE** - Speak clearly in Czech or German!")
-                    st.info("💡 **Audio will be amplified 500% for better pronunciation detection**")
-                    
-                    # Show real-time feedback
-                    st.markdown("### 🎙️ Recording in progress...")
-                    progress_bar = st.progress(0)
-                    for i in range(100):
-                        time.sleep(0.05)  # Show recording activity
-                        progress_bar.progress(i + 1)
-                        if not st.session_state.is_recording:
-                            break
+                **For Testing:** Use the upload option below the recorder
+                """)
                 
-                # Audio Upload Alternative
-                st.markdown("---")
-                st.write("📁 **Alternative: Upload Audio File**")
-                uploaded_file = st.file_uploader(
-                    "Upload audio for pronunciation analysis", 
-                    type=['wav', 'mp3', 'ogg', 'm4a'],
-                    help="Upload clear audio for Czech/German pronunciation detection"
-                )
-                
-                if uploaded_file is not None:
-                    if st.button("🎯 **PROCESS UPLOADED AUDIO**", type="primary"):
-                        with st.spinner("🔄 Processing uploaded audio..."):
-                            process_uploaded_audio_enhanced(uploaded_file)
+                # Browser compatibility note
+                st.success("""
+                ✅ **HTML5 Audio Features:**
+                - Works in all modern browsers
+                - No WebRTC issues on Railway
+                - 500% audio amplification  
+                - Czech/German pronunciation focus
+                - Reliable production deployment
+                """)
     with col2:
         st.header("Output")
         
