@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Audio Recorder</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div id="audio-recorder">
+        <div id="status">🎤 Ready to Record</div>
+        
+        <button id="recordBtn" onclick="toggleRecording()">
+            🔴 START RECORDING
+        </button>
+        
+        <div id="timer">00:00</div>
+        
+        <div id="processing" style="display: none;">
+            ⚡ Processing automatically...
+        </div>
+    </div>
+
+    <script src="./main.js"></script>
+</body>
+</html>
