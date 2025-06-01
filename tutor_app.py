@@ -234,7 +234,7 @@ def create_audio_recorder_component():
                 
                 recordBtn.innerHTML = '⏹️ STOP RECORDING';
                 recordBtn.style.background = '#666';
-                statusDiv.innerHTML = '🔴 RECORDING - Speak clearly in Czech or German';
+                statusDiv.innerHTML = '🔴 RECORDING - Speak in Czech or German';
                 
                 // Disable other buttons
                 document.getElementById('previewBtn').disabled = true;
@@ -245,7 +245,7 @@ def create_audio_recorder_component():
                 timerInterval = setInterval(updateTimer, 1000);
                 
                 // Start recording
-                mediaRecorder.start(1000); // Collect data every second
+                mediaRecorder.start(1000);
                 
             } else {
                 // Stop recording
@@ -254,9 +254,12 @@ def create_audio_recorder_component():
                 
                 recordBtn.innerHTML = '🔄 NEW RECORDING';
                 recordBtn.style.background = '#ff4b4b';
+                statusDiv.innerHTML = '⏳ Processing recording automatically...';
                 
                 // Stop timer
                 clearInterval(timerInterval);
+                
+                // Auto-process after stop (this will be handled in onstop event)
             }
         }
 
@@ -287,13 +290,32 @@ def create_audio_recorder_component():
                     // Store in hidden div for Streamlit to access
                     document.getElementById('audioData').innerHTML = base64Data;
                     
-                    // Trigger Streamlit rerun by dispatching custom event
-                    window.parent.postMessage({
-                        type: 'audio_recorded',
-                        data: base64Data
-                    }, '*');
+                    // Use Streamlit's component communication
+                    if (window.parent.streamlitComponentValue) {
+                        window.parent.streamlitComponentValue = {
+                            type: 'audio_recorded',
+                            data: base64Data,
+                            timestamp: Date.now()
+                        };
+                    }
                     
                     document.getElementById('status').innerHTML = '✅ Audio sent for processing!';
+                    
+                    // Auto-trigger processing after 500ms
+                    setTimeout(() => {
+                        // Trigger Streamlit rerun by changing a hidden element
+                        const hiddenInput = document.createElement('input');
+                        hiddenInput.type = 'hidden';
+                        hiddenInput.id = 'streamlit-trigger';
+                        hiddenInput.value = Date.now();
+                        document.body.appendChild(hiddenInput);
+                        
+                        // Dispatch event
+                        window.parent.postMessage({
+                            type: 'streamlit-rerun',
+                            audioData: base64Data
+                        }, '*');
+                    }, 500);
                 };
                 reader.readAsDataURL(recordedBlob);
             }
@@ -320,7 +342,7 @@ def create_audio_recorder_component():
     """
     
     # Return the component with a unique height
-    return components.html(html_code, height=300)
+    return components.html(html_code, height=300, key="audio_recorder")
 
 # Add these functions after the create_audio_recorder_component function
 
@@ -406,25 +428,35 @@ def amplify_recorded_audio(audio_path):
         return audio_path
 
 async def process_html5_recorded_voice(audio_path):
-    """Process HTML5 recorded voice through the enhanced pipeline"""
+    """Process HTML5 recorded voice through the enhanced pipeline with auto-preview"""
     try:
+        st.session_state.message_queue.put("🎧 Processing HTML5 recorded audio...")
+        
         # Process with the existing enhanced pipeline
         text, audio_output_path, stt_latency, llm_latency, tts_latency = await process_voice_input_pronunciation_enhanced(audio_path)
         
         # Store results in session state
         if text:
             st.session_state.last_text_input = text
+            st.session_state.message_queue.put(f"📝 Transcribed: {text}")
+        
         if audio_output_path:
             st.session_state.last_audio_output = audio_output_path
+            st.session_state.message_queue.put("🔊 Generated response audio")
         
-        # Show results
+        # Show results with both preview and processed audio
         total_latency = stt_latency + llm_latency + tts_latency
-        st.success(f"✅ **HTML5 Voice Processing Complete!** ({total_latency:.2f}s)")
+        st.session_state.message_queue.put(f"✅ Complete! ({total_latency:.2f}s)")
+        
+        # Auto-display both audios
+        if audio_path and os.path.exists(audio_path):
+            st.session_state.preview_audio_path = audio_path
         
         return True
         
     except Exception as e:
         st.error(f"HTML5 voice processing error: {str(e)}")
+        st.session_state.message_queue.put(f"❌ Error: {str(e)}")
         logger.error(f"HTML5 voice processing error: {str(e)}")
         return False
 
@@ -2586,6 +2618,13 @@ def main():
     st.title("Multilingual AI Voice Tutor")
     st.subheader("Proof-of-Concept for Czech ↔ German Language Switching")
     
+    # Initialize HTML5 audio session state
+    if 'html5_audio_data' not in st.session_state:
+        st.session_state.html5_audio_data = None
+    if 'html5_processing' not in st.session_state:
+        st.session_state.html5_processing = False
+    if 'preview_audio_path' not in st.session_state:
+        st.session_state.preview_audio_path = None
     # Status area for progress updates
     if 'status_area' not in st.session_state:
         st.session_state.status_area = st.empty()
@@ -2833,6 +2872,42 @@ def main():
                 # Create the HTML5 audio recorder component
                 create_audio_recorder_component()
                 
+                # Create the HTML5 audio recorder component
+                component_value = create_audio_recorder_component()
+
+                # Check for component communication
+                if component_value and isinstance(component_value, dict):
+                    if component_value.get('type') == 'audio_recorded':
+                        base64_data = component_value.get('data')
+                        if base64_data:
+                            st.session_state.html5_audio_data = base64_data
+                            st.session_state.html5_processing = True
+                            st.rerun()
+
+                # Auto-process audio if received
+                if st.session_state.get('html5_audio_data') and st.session_state.get('html5_processing'):
+                    st.session_state.html5_processing = False  # Prevent loop
+                    
+                    with st.spinner("🔄 Auto-processing recorded audio..."):
+                        # Process the HTML5 audio data
+                        temp_audio_path = process_html5_audio_data(st.session_state.html5_audio_data)
+                        
+                        if temp_audio_path:
+                            # Run through the enhanced processing pipeline
+                            success = asyncio.run(process_html5_recorded_voice(temp_audio_path))
+                            
+                            if success:
+                                st.success("✅ Audio processed successfully!")
+                            else:
+                                st.error("❌ Audio processing failed")
+                            
+                            # Clean up
+                            if os.path.exists(temp_audio_path):
+                                os.unlink(temp_audio_path)
+                        
+                        # Clear the audio data
+                        st.session_state.html5_audio_data = None
+                
                 # Check for audio data (this would be set via JavaScript messaging)
                 # For now, we'll use a manual approach with file upload as backup
                 
@@ -2934,7 +3009,21 @@ def main():
                     file_name="multilingual_tutor_response.mp3",
                     mime="audio/mp3"
                 )
-    
+    # Auto-display preview audio if available
+    if 'preview_audio_path' in st.session_state and st.session_state.preview_audio_path:
+        if os.path.exists(st.session_state.preview_audio_path):
+            st.subheader("🎤 Your Recording (Preview)")
+            
+            with open(st.session_state.preview_audio_path, "rb") as audio_file:
+                preview_bytes = audio_file.read()
+                st.audio(preview_bytes, format="audio/wav")
+                
+            st.download_button(
+                label="Download Your Recording",
+                data=preview_bytes,
+                file_name="your_recording.wav",
+                mime="audio/wav"
+            )
     # Conversation history
     if st.session_state.conversation_history:
         st.header("Conversation History")
