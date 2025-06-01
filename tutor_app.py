@@ -287,13 +287,21 @@ def create_audio_recorder_component():
                 reader.onloadend = function() {
                     const base64Data = reader.result.split(',')[1];
                     
-                    // Store in hidden div for Streamlit to access
+                    // Store in multiple places for accessibility
                     document.getElementById('audioData').innerHTML = base64Data;
-                    
-                    document.getElementById('status').innerHTML = '✅ Audio ready for processing!';
-                    
-                    // Simple trigger - just store the data
                     window.audioDataReady = base64Data;
+                    
+                    // Also store in localStorage for persistence
+                    localStorage.setItem('recordedAudioData', base64Data);
+                    
+                    // Log to console for manual copying
+                    console.log('🎤 RECORDED AUDIO DATA (copy this):');
+                    console.log(base64Data);
+                    
+                    document.getElementById('status').innerHTML = '✅ Audio ready! Check console or copy from localStorage';
+                    
+                    // Try to alert user
+                    alert('Audio processed! Check browser console for audio data, or use the text area below to paste it.');
                 };
                 reader.readAsDataURL(recordedBlob);
             }
@@ -2843,10 +2851,58 @@ def main():
                 # Create the HTML5 audio recorder component
                 create_audio_recorder_component()
                 # Add a manual process button for now
+                # Add a manual process button that actually works
                 st.markdown("---")
-                if st.button("🔄 **PROCESS RECORDED AUDIO**", type="primary", key="process_recorded"):
-                    # This will be enhanced to automatically detect recorded audio
-                    st.info("Click PROCESS in the recorder above, then click this button")
+                st.write("**Process Your Recording:**")
+
+                # Add a hidden text area to capture audio data
+                audio_data_input = st.text_area(
+                    "Audio Data (Base64)", 
+                    value="", 
+                    height=100,
+                    placeholder="After clicking PROCESS in the recorder above, paste the audio data here and click PROCESS AUDIO below",
+                    help="The HTML5 recorder will store audio data. Copy it from browser console if needed."
+                )
+
+                if st.button("🔄 **PROCESS AUDIO DATA**", type="primary", key="process_audio_data"):
+                    if audio_data_input and audio_data_input.strip():
+                        with st.spinner("🔄 Processing recorded audio..."):
+                            try:
+                                # Process the base64 audio data
+                                temp_audio_path = process_html5_audio_data(audio_data_input.strip())
+                                
+                                if temp_audio_path:
+                                    # Run through the enhanced processing pipeline
+                                    success = asyncio.run(process_html5_recorded_voice(temp_audio_path))
+                                    
+                                    if success:
+                                        st.success("✅ Audio processed successfully!")
+                                    else:
+                                        st.error("❌ Audio processing failed")
+                                    
+                                    # Clean up
+                                    if os.path.exists(temp_audio_path):
+                                        os.unlink(temp_audio_path)
+                                else:
+                                    st.error("Failed to process audio data")
+                                    
+                            except Exception as e:
+                                st.error(f"Processing error: {str(e)}")
+                    else:
+                        st.warning("Please record audio first using the recorder above, then copy the audio data here")
+
+                # Alternative: Simple approach using browser's local storage
+                st.markdown("---")
+                st.write("**Alternative: JavaScript Console Method**")
+                st.info("""
+                **If the recorder isn't working:**
+                1. Record your audio using the recorder above
+                2. Click PROCESS in the recorder  
+                3. Open browser console (F12)
+                4. Type: `console.log(window.audioDataReady)`
+                5. Copy the resulting base64 string
+                6. Paste it in the text area above and click PROCESS AUDIO DATA
+                """)
                 
                 # Check for audio data (this would be set via JavaScript messaging)
                 # For now, we'll use a manual approach with file upload as backup
