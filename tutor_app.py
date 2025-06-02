@@ -1883,74 +1883,59 @@ def fix_language_markers(text):
     return text
 
 def process_multilingual_text_seamless(text, detect_language=True):
-    """IMPROVED: Process text with consistent audio quality"""
+    """FIXED: Process text with perfectly smooth transitions"""
     
     segments = parse_language_segments_advanced(text)
     
     if len(segments) <= 1:
         return process_multilingual_text(text, detect_language)
     
-    # Collect all audio segments first
+    # Generate all audio segments with CONSISTENT settings
     audio_segments = []
-    language_codes = []
     total_time = 0
     
     for i, segment in enumerate(segments):
         if not segment["text"].strip():
             continue
-            
-        processed_text = prepare_text_for_seamless_transition(
-            segment["text"], 
-            segment["language"],
-            is_first=(i == 0),
-            is_last=(i == len(segments)-1),
-            prev_lang=segments[i-1]["language"] if i > 0 else None
-        )
         
+        # CRITICAL: NO special processing - use raw text for consistency
+        raw_text = segment["text"].strip()
+        
+        # Generate with SAME settings regardless of language
         audio_data, generation_time = generate_speech_seamless(
-            processed_text, 
+            raw_text, 
             language_code=segment["language"],
-            context={
-                "position": i,
-                "total_segments": len(segments),
-                "prev_language": segments[i-1]["language"] if i > 0 else None,
-                "next_language": segments[i+1]["language"] if i < len(segments)-1 else None
-            }
+            context={"position": i, "total_segments": len(segments)}
         )
         
         if audio_data:
             audio_segment = AudioSegment.from_file(audio_data, format="mp3")
             audio_segments.append(audio_segment)
-            language_codes.append(segment["language"])
             total_time += generation_time
     
     if not audio_segments:
         return None, 0
     
-    # CRITICAL: Normalize all segments for consistent quality
-    normalized_segments = normalize_audio_segments(audio_segments, language_codes)
+    # CRITICAL: Perfect normalization for seamless transitions
+    normalized_segments = normalize_audio_segments_advanced(audio_segments)
     
-    # Combine with smooth transitions
+    # STEP 2: Seamless concatenation with NO crossfade (eliminates artifacts)
     combined_audio = normalized_segments[0]
     
     for i in range(1, len(normalized_segments)):
-        # Apply smooth crossfade
-        crossfade_duration = 50  # ms
-        combined_audio = combined_audio.append(
-            normalized_segments[i], 
-            crossfade=crossfade_duration
-        )
+        # DIRECT append with NO crossfade for perfect smoothness
+        combined_audio = combined_audio + normalized_segments[i]
     
-    # Final quality enhancement
-    combined_audio = enhance_multilingual_audio_final(combined_audio)
+    # FINAL: Consistent output processing
+    final_audio = combined_audio.normalize(headroom=0.1)
     
-    # Save with consistent quality
+    # Save with consistent quality settings
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
-        combined_audio.export(
+        final_audio.export(
             temp_file.name, 
             format="mp3", 
             bitrate="192k",
-            parameters=["-ac", "1", "-ar", "22050", "-af", "volume=0.8"]  # Consistent volume
+            parameters=["-ac", "1", "-ar", "22050"]  # Consistent parameters
         )
         return temp_file.name, total_time
         
@@ -1995,42 +1980,37 @@ def parse_language_segments_advanced(text):
     return segments
 
 def prepare_text_for_seamless_transition(text, language, is_first, is_last, prev_lang):
-    """Prepare text for seamless language transitions"""
+    """FIXED: Minimal processing to maintain voice consistency"""
     
-    # Add micro-pauses at language boundaries
-    if not is_first and prev_lang and prev_lang != language:
-        text = f"<break time='100ms'/>{text}"
-    
-    # Language-specific pronunciation hints
-    if language == "cs":
-        # Czech pronunciation optimization
-        text = optimize_czech_pronunciation(text)
-    elif language == "de": 
-        # German pronunciation optimization
-        text = optimize_german_pronunciation(text)
-    
-    return text
+    # CRITICAL: NO micro-pauses or special processing that causes accent bleeding
+    # Return clean text without modifications
+    return text.strip()
 
 def generate_speech_seamless(text, language_code, context):
-    """Generate speech optimized for seamless multilingual transitions"""
+    """Generate speech optimized for seamless multilingual transitions - FIXED VERSION"""
     
     voice_id = st.session_state.elevenlabs_voice_id
     api_key = st.session_state.elevenlabs_api_key
     
-    # CRITICAL: Use consistent voice with language-specific fine-tuning
-    model_id = "eleven_multilingual_v2"  # Best for seamless switching
+    # CRITICAL: Use SAME model for consistency
+    model_id = "eleven_multilingual_v2"
     
-    # Context-aware voice settings for seamless transitions
-    voice_settings = get_contextual_voice_settings(language_code, context)
+    # FIXED: Consistent voice settings to eliminate accent bleeding
+    voice_settings = {
+        "stability": 0.85,        # HIGH stability for consistency
+        "similarity_boost": 0.95,  # VERY HIGH to maintain same voice
+        "style": 0.0,             # ZERO style to avoid language-specific changes
+        "use_speaker_boost": True
+    }
     
-    # Enhanced text with SSML for better pronunciation
-    enhanced_text = add_pronunciation_markup(text, language_code)
+    # CRITICAL: NO language-specific modifications to prevent accent bleeding
+    enhanced_text = text.strip()  # Use raw text without SSML modifications
     
     data = {
         "text": enhanced_text,
         "model_id": model_id,
         "voice_settings": voice_settings,
-        "apply_text_normalization": "auto"  # Better for mixed content
+        "apply_text_normalization": "auto"
     }
     
     headers = {
@@ -2048,7 +2028,7 @@ def generate_speech_seamless(text, language_code, context):
         )
         
         if response.status_code == 200:
-            return BytesIO(response.content), 0.5  # Faster processing
+            return BytesIO(response.content), 0.5
         else:
             return None, 0
             
@@ -2446,27 +2426,67 @@ def process_multilingual_text(text, detect_language=True):
     
 
 def normalize_audio_segments(audio_segments, target_language_codes):
-    """Normalize volume and speed across language segments"""
+    """FIXED: Normalize volume and speed for seamless transitions"""
+    if not audio_segments:
+        return []
+    
     normalized_segments = []
     
-    # Calculate target volume from first segment
-    if audio_segments:
-        target_volume = audio_segments[0].dBFS
+    # CRITICAL: Calculate consistent target volume from ALL segments
+    total_volume = sum(segment.dBFS for segment in audio_segments)
+    target_volume = total_volume / len(audio_segments)
     
-    for i, (segment, lang_code) in enumerate(zip(audio_segments, target_language_codes)):
-        # Normalize volume to consistent level
-        volume_normalized = segment.normalize(headroom=0.1)
+    for segment in audio_segments:
+        # STEP 1: Normalize to exact same volume
+        current_volume = segment.dBFS
+        volume_adjustment = target_volume - current_volume
+        volume_normalized = segment + volume_adjustment
         
-        # Ensure consistent dBFS across segments
-        if abs(volume_normalized.dBFS - target_volume) > 3:  # More than 3dB difference
-            volume_normalized = volume_normalized + (target_volume - volume_normalized.dBFS)
+        # STEP 2: Ensure exact same playback rate (eliminate speed differences)
+        # Force all segments to same frame rate
+        if hasattr(volume_normalized, 'frame_rate'):
+            target_frame_rate = 22050  # Standard rate
+            if volume_normalized.frame_rate != target_frame_rate:
+                # Resample to consistent frame rate
+                volume_normalized = volume_normalized.set_frame_rate(target_frame_rate)
         
-        # Normalize speed (playback rate consistency)
-        speed_normalized = normalize_speech_speed(volume_normalized, lang_code)
+        # STEP 3: Apply consistent audio processing
+        final_segment = volume_normalized.normalize(headroom=0.1)
         
-        normalized_segments.append(speed_normalized)
+        normalized_segments.append(final_segment)
     
     return normalized_segments
+
+def normalize_audio_segments_advanced(audio_segments):
+    """Advanced normalization for perfect seamless transitions"""
+    if not audio_segments:
+        return []
+    
+    # STEP 1: Analyze all segments to find optimal normalization values
+    volumes = [seg.dBFS for seg in audio_segments]
+    frame_rates = [seg.frame_rate for seg in audio_segments]
+    
+    # Target values for consistency
+    target_volume = sum(volumes) / len(volumes)
+    target_frame_rate = max(set(frame_rates), key=frame_rates.count)  # Most common rate
+    
+    normalized = []
+    
+    for segment in audio_segments:
+        # Volume normalization
+        volume_diff = target_volume - segment.dBFS
+        vol_normalized = segment + volume_diff
+        
+        # Frame rate normalization  
+        if vol_normalized.frame_rate != target_frame_rate:
+            vol_normalized = vol_normalized.set_frame_rate(target_frame_rate)
+        
+        # Final consistency check
+        final_segment = vol_normalized.normalize(headroom=0.1)
+        
+        normalized.append(final_segment)
+    
+    return normalized
 
 def normalize_speech_speed(audio_segment, language_code):
     """Ensure consistent speech speed across languages"""
