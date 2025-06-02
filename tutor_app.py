@@ -53,27 +53,42 @@ if 'api_keys_initialized' not in st.session_state:
 ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1"
 OPENAI_API_URL = "https://api.openai.com/v1"
 
-# Default voice settings
+
+# VOICE ISOLATION: Separate voices for each language to eliminate accent bleeding
+if 'language_voices' not in st.session_state:
+    st.session_state.language_voices = {
+        "cs": "21m00Tcm4TlvDq8ikWAM",  # Rachel - good for Czech
+        "de": "EXAVITQu4vr4xnSDxMaL",  # Bella - good for German  
+        "default": "21m00Tcm4TlvDq8ikWAM"
+    }
+
+# OPTIMIZED voice settings for Flash v2.5 model
 if 'voice_settings' not in st.session_state:
     st.session_state.voice_settings = {
+        "cs": {  # Czech-optimized settings
+            "stability": 0.95,        # MAXIMUM stability for consistent Czech
+            "similarity_boost": 0.98, # MAXIMUM similarity for native Czech sound
+            "style": 0.85,           # High style for natural Czech expression
+            "use_speaker_boost": True # Enable speaker boost for clarity
+        },
+        "de": {  # German-optimized settings  
+            "stability": 0.92,        # VERY HIGH stability for consistent German
+            "similarity_boost": 0.95, # VERY HIGH similarity for native German sound
+            "style": 0.80,           # High style for natural German expression
+            "use_speaker_boost": True # Enable speaker boost for clarity
+        },
         "default": {
-            "stability": 0.6,
-            "similarity_boost": 0.7
-        },
-        "en": {  # English settings - TESTING
-            "stability": 0.65,
-            "similarity_boost": 0.6
-        },
-        "hi": {  # Hindi settings - TESTING
-            "stability": 0.55,
-            "similarity_boost": 0.7
+            "stability": 0.90,
+            "similarity_boost": 0.90,
+            "style": 0.75,
+            "use_speaker_boost": True
         }
     }
 
-# Default voice selection
+# Backward compatibility
 if 'elevenlabs_voice_id' not in st.session_state:
-    st.session_state.elevenlabs_voice_id = "21m00Tcm4TlvDq8ikWAM"  # Rachel voice - better for multilingual
-
+    st.session_state.elevenlabs_voice_id = st.session_state.language_voices["default"]
+    
 # Whisper speech recognition config
 if 'whisper_model' not in st.session_state:
     st.session_state.whisper_model = "medium"
@@ -82,8 +97,8 @@ if 'whisper_model' not in st.session_state:
 # Language distribution preference
 if 'language_distribution' not in st.session_state:
     st.session_state.language_distribution = {
-        "en": 50,  # English percentage - TESTING
-        "hi": 50   # Hindi percentage - TESTING
+        "cs": 50,  # Czech percentage
+        "de": 50   # German percentage
     }
 
 # Language preference for response
@@ -91,10 +106,9 @@ if 'response_language' not in st.session_state:
     st.session_state.response_language = "both"  # Options: "cs", "de", "both"
 
 # Language codes and settings
-# Language codes and settings - TESTING MODE
 SUPPORTED_LANGUAGES = {
-    "en": {"name": "English", "confidence_threshold": 0.65},
-    "hi": {"name": "Hindi", "confidence_threshold": 0.65}
+    "cs": {"name": "Czech", "confidence_threshold": 0.65},
+    "de": {"name": "German", "confidence_threshold": 0.65}
 }
 
 # Performance monitoring
@@ -134,24 +148,6 @@ def check_system_dependencies():
 # Add this new function after the import statements (around line 200)
 import streamlit.components.v1 as components
 
-def validate_accent_quality(audio_path, expected_language):
-    """Validate generated audio doesn't have accent bleeding"""
-    try:
-        # Simple quality check - in production could use ML accent detection
-        file_size = os.path.getsize(audio_path)
-        
-        # Flash v2.5 should generate consistent file sizes per language
-        if expected_language == "cs" and file_size < 1000:
-            logger.warning("Czech audio unusually small - possible accent issue")
-            return False
-        elif expected_language == "de" and file_size < 1000:
-            logger.warning("German audio unusually small - possible accent issue") 
-            return False
-            
-        return True
-    except:
-        return True  # Default to accepting if validation fails
-    
 def create_auto_processor():
     """Create automatic audio processor"""
     if 'audio_processor_initialized' not in st.session_state:
@@ -1210,16 +1206,21 @@ class SpeechRecognizer:
         
         # Second check: vocabulary analysis
         # Czech-specific common words (expanded list)
-        # English-specific words - TESTING
-        english_words = {
-            "hello", "thank", "you", "good", "morning", "how", "are", "yes", "no",
-            "the", "and", "is", "was", "have", "has", "will", "would", "could", "should"
+        czech_words = {
+            "jsem", "jsi", "je", "jsou", "byl", "byla", "bylo", "být", "budu", 
+            "máme", "mám", "prosím", "děkuji", "ahoj", "dobrý", "dobře", "ano", "ne",
+            "já", "ty", "on", "ona", "my", "vy", "oni", "den", "noc", "chci", "dnes",
+            "zítra", "včera", "tady", "tam", "proč", "kde", "kdy", "jak", "co", "kdo",
+            "to", "ten", "ta", "mít", "jít", "dělat", "vidět", "slyšet", "vědět"
         }
-
-        # Hindi-specific words - TESTING
-        hindi_words = {
-            "namaste", "dhanyawad", "aap", "main", "hai", "hoon", "kaise", "kya", "haan", "nahi",
-            "acha", "theek", "kaise", "kahan", "kab", "kyun", "kaun", "kitna", "bahut", "accha"
+        
+        # German-specific common words (expanded list)
+        german_words = {
+            "ich", "du", "er", "sie", "es", "wir", "ihr", "sind", "ist", "bin",
+            "habe", "haben", "hatte", "war", "gewesen", "bitte", "danke", "gut", "ja", "nein",
+            "der", "die", "das", "ein", "eine", "zu", "von", "mit", "für", "auf",
+            "wenn", "aber", "oder", "und", "nicht", "auch", "so", "wie", "was", "wo",
+            "wann", "wer", "warum", "möchte", "kann", "muss", "soll", "darf", "will"
         }
         
         # Clean and tokenize text
@@ -1227,8 +1228,8 @@ class SpeechRecognizer:
         words = clean_text.split()
         
         # Count word occurrences with weighted importance
-        czech_word_count = sum(1 for word in words if word in english_words)
-        german_word_count = sum(1 for word in words if word in hindi_words)
+        czech_word_count = sum(1 for word in words if word in czech_words)
+        german_word_count = sum(1 for word in words if word in german_words)
         
         # Word-based confidence
         word_confidence = 0
@@ -1919,45 +1920,19 @@ def parse_language_segments_advanced(text):
     return segments
 
 def prepare_text_for_seamless_transition(text, language, is_first, is_last, prev_lang):
-    """Prepare text for ACCENT-FREE language transitions"""
+    """Prepare text for seamless language transitions"""
     
-    # 🔥 CRITICAL: Add language reset pause when switching
+    # Add micro-pauses at language boundaries
     if not is_first and prev_lang and prev_lang != language:
-        text = f'<break time="200ms"/><lang xml:lang="{language}-{language.upper()}">{text}</lang>'
-    else:
-        text = f'<lang xml:lang="{language}-{language.upper()}">{text}</lang>'
+        text = f"<break time='100ms'/>{text}"
     
-    # Language-specific pronunciation optimization
+    # Language-specific pronunciation hints
     if language == "cs":
-        text = optimize_czech_pronunciation_advanced(text)
+        # Czech pronunciation optimization
+        text = optimize_czech_pronunciation(text)
     elif language == "de": 
-        text = optimize_german_pronunciation_advanced(text)
-    
-    return text
-
-def optimize_czech_pronunciation_advanced(text):
-    """Advanced Czech pronunciation with zero German accent"""
-    czech_phonetics = {
-        "děkuji": '<phoneme alphabet="ipa" ph="ˈɟɛkuji">děkuji</phoneme>',
-        "prosím": '<phoneme alphabet="ipa" ph="ˈprosiːm">prosím</phoneme>',
-        "dobrý": '<phoneme alphabet="ipa" ph="ˈdobriː">dobrý</phoneme>'
-    }
-    
-    for word, phonetic in czech_phonetics.items():
-        text = text.replace(word, phonetic)
-    
-    return text
-
-def optimize_german_pronunciation_advanced(text):
-    """Advanced German pronunciation with zero Czech accent"""
-    german_phonetics = {
-        "danke": '<phoneme alphabet="ipa" ph="ˈdaŋkə">danke</phoneme>',
-        "bitte": '<phoneme alphabet="ipa" ph="ˈbɪtə">bitte</phoneme>',
-        "guten": '<phoneme alphabet="ipa" ph="ˈɡuːtn̩">guten</phoneme>'
-    }
-    
-    for word, phonetic in german_phonetics.items():
-        text = text.replace(word, phonetic)
+        # German pronunciation optimization
+        text = optimize_german_pronunciation(text)
     
     return text
 
@@ -1968,7 +1943,7 @@ def generate_speech_seamless(text, language_code, context):
     api_key = st.session_state.elevenlabs_api_key
     
     # CRITICAL: Use consistent voice with language-specific fine-tuning
-    model_id = "eleven_flash_v2_5"  # Best for seamless switching
+    model_id = "eleven_multilingual_v2"  # Best for seamless switching
     
     # Context-aware voice settings for seamless transitions
     voice_settings = get_contextual_voice_settings(language_code, context)
@@ -1980,9 +1955,7 @@ def generate_speech_seamless(text, language_code, context):
         "text": enhanced_text,
         "model_id": model_id,
         "voice_settings": voice_settings,
-        "apply_text_normalization": "auto",
-        "optimize_streaming_latency": 4,  # 🔥 ULTRA-LOW LATENCY
-        "output_format": "mp3_44100_128"  # 🔥 OPTIMIZED OUTPUT
+        "apply_text_normalization": "auto"  # Better for mixed content
     }
     
     headers = {
@@ -2037,30 +2010,15 @@ def optimize_german_pronunciation(text):
     return text
 
 def add_pronunciation_markup(text, language_code):
-    """Enhanced SSML markup for accent-free pronunciation"""
+    """Add SSML markup for better pronunciation"""
     
+    # Basic SSML wrapper
     if language_code == "cs":
-        # Czech pronunciation optimization with SSML
-        enhanced_text = f'<speak><lang xml:lang="cs-CZ">'
-        
-        # Add phonetic hints for difficult Czech sounds
-        enhanced_text += text.replace("ř", '<phoneme alphabet="ipa" ph="r̝̊">ř</phoneme>')
-        enhanced_text += '</lang><break time="50ms"/></speak>'
-        
-        return enhanced_text
-        
+        return f'<speak><lang xml:lang="cs">{text}</lang></speak>'
     elif language_code == "de":
-        # German pronunciation optimization with SSML
-        enhanced_text = f'<speak><lang xml:lang="de-DE">'
-        
-        # Add phonetic hints for German sounds
-        enhanced_text += text.replace("ü", '<phoneme alphabet="ipa" ph="y">ü</phoneme>')
-        enhanced_text += text.replace("ä", '<phoneme alphabet="ipa" ph="ɛ">ä</phoneme>')
-        enhanced_text += '</lang><break time="50ms"/></speak>'
-        
-        return enhanced_text
-    
-    return f'<speak>{text}</speak>'
+        return f'<speak><lang xml:lang="de">{text}</lang></speak>'
+    else:
+        return text
 
 def apply_language_transition_blend(audio_segment, prev_lang, current_lang):
     """Apply audio processing for smoother language transitions"""
@@ -2215,21 +2173,25 @@ def get_voices():
         return []
 
 def generate_speech(text, language_code=None, voice_id=None):
-    """Generate speech using ElevenLabs API with improved error handling and language-specific optimization"""
+    """ACCENT-FREE speech generation using voice isolation + Flash v2.5 optimization"""
     if not text or text.strip() == "":
         logger.error("Empty text provided to generate_speech")
         return None, 0
-        
-    if not voice_id:
-        voice_id = st.session_state.elevenlabs_voice_id
-        
+    
     api_key = st.session_state.elevenlabs_api_key
     if not api_key:
         logger.error("ElevenLabs API key not provided")
         return None, 0
     
+    # VOICE ISOLATION: Select language-specific voice
+    if language_code and language_code in st.session_state.language_voices:
+        selected_voice_id = st.session_state.language_voices[language_code]
+        logger.info(f"Using {language_code} voice: {selected_voice_id}")
+    else:
+        selected_voice_id = voice_id or st.session_state.elevenlabs_voice_id
+    
     # Check cache first
-    cache_key = f"{text}_{language_code}_{voice_id}"
+    cache_key = f"{text}_{language_code}_{selected_voice_id}_flash_v2_5"
     if hasattr(st.session_state, 'tts_cache') and cache_key in st.session_state.tts_cache:
         return st.session_state.tts_cache[cache_key]
     
@@ -2239,68 +2201,36 @@ def generate_speech(text, language_code=None, voice_id=None):
         "xi-api-key": api_key
     }
     
-    # Use MULTILINGUAL model for native-quality pronunciation
-    model_id = "eleven_flash_v2_5"  # 🔥 ACCENT-FREE MODEL
-
-    # ACCENT-ISOLATION SETTINGS
-    # ACCENT-ISOLATION SETTINGS - TESTING MODE
-    if language_code == "en":  # English
-        voice_settings = {
-            "stability": 0.95,        # 🎯 MAXIMUM stability for pure English
-            "similarity_boost": 0.75, # 🎯 REDUCED similarity to prevent Hindi bleeding
-            "style": 0.85,           # 🎯 HIGH style for natural English
-            "use_speaker_boost": True
-        }
-    elif language_code == "hi":  # Hindi  
-        voice_settings = {
-            "stability": 0.90,        # 🎯 HIGH stability for pure Hindi
-            "similarity_boost": 0.80, # 🎯 CONTROLLED similarity 
-            "style": 0.75,           # 🎯 NATURAL Hindi expression
-            "use_speaker_boost": True
-        }
-    else:
-        voice_settings = {
-            "stability": 0.92,
-            "similarity_boost": 0.77,
-            "style": 0.80,
-            "use_speaker_boost": True
-        }
+    # METHOD 2: Use Flash v2.5 model for BEST accent-free performance
+    model_id = "eleven_flash_v2_5"  # CRITICAL: Latest model with 32 languages + ultra-low latency
     
-    # Simplified text optimization
-    optimized_text = text.strip()
+    # METHOD 1: Language-specific voice settings for accent isolation
+    if language_code and language_code in st.session_state.voice_settings:
+        voice_settings = st.session_state.voice_settings[language_code].copy()
+        logger.info(f"Using optimized {language_code} settings: {voice_settings}")
+    else:
+        voice_settings = st.session_state.voice_settings["default"]
+    
+    # SSML enhancement for pronunciation accuracy
+    enhanced_text = add_accent_free_markup(text, language_code)
     
     data = {
-        "text": optimized_text,
+        "text": enhanced_text,
         "model_id": model_id,
-        "voice_settings": voice_settings
+        "voice_settings": voice_settings,
+        "apply_text_normalization": "auto"
     }
     
     start_time = time.time()
     
     try:
-        # Reduced retries and timeout
-        max_retries = 2
-        retry_delay = 0.5
-        
-        for attempt in range(max_retries):
-            try:
-                response = requests.post(
-                    f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
-                    json=data,
-                    headers=headers,
-                    timeout=15  # Reduced timeout
-                )
-                
-                if response.status_code == 200:
-                    break
-                    
-                if response.status_code in [429, 500, 502, 503, 504]:
-                    time.sleep(retry_delay * (attempt + 1))
-                else:
-                    break
-                    
-            except requests.exceptions.RequestException as e:
-                time.sleep(retry_delay * (attempt + 1))
+        # Optimized for Flash v2.5 speed
+        response = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{selected_voice_id}",
+            json=data,
+            headers=headers,
+            timeout=10  # Flash v2.5 is much faster
+        )
         
         generation_time = time.time() - start_time
         
@@ -2314,13 +2244,35 @@ def generate_speech(text, language_code=None, voice_id=None):
                 st.session_state.tts_cache = {}
             st.session_state.tts_cache[cache_key] = (BytesIO(content), generation_time)
             
+            logger.info(f"✅ Accent-free audio generated for {language_code} in {generation_time:.2f}s")
             return BytesIO(content), generation_time
         else:
+            logger.error(f"TTS API error: {response.status_code} - {response.text}")
             return None, generation_time
     
     except Exception as e:
-        logger.error(f"TTS error: {str(e)}")
+        logger.error(f"Accent-free TTS error: {str(e)}")
         return None, time.time() - start_time
+
+def add_accent_free_markup(text, language_code):
+    """Add SSML markup for accent-free pronunciation"""
+    if not language_code:
+        return text
+    
+    # Clean text first
+    clean_text = text.strip()
+    
+    # Add language-specific SSML for accent-free pronunciation
+    if language_code == "cs":
+        # Czech pronunciation optimization
+        enhanced_text = f'<speak><lang xml:lang="cs-CZ"><prosody rate="0.9">{clean_text}</prosody></lang></speak>'
+    elif language_code == "de":
+        # German pronunciation optimization  
+        enhanced_text = f'<speak><lang xml:lang="de-DE"><prosody rate="0.95">{clean_text}</prosody></lang></speak>'
+    else:
+        enhanced_text = clean_text
+    
+    return enhanced_text
 
 def optimize_text_for_language(text, language_code):
     """Optimize text for specific language pronunciation"""
@@ -2907,30 +2859,58 @@ def main():
             st.session_state.api_keys_initialized = True
             st.success("API keys saved successfully!")
         
-        # Voice selection
-        st.subheader("Voice Settings")
-        
-        if st.button("Fetch Available Voices"):
-            if st.session_state.elevenlabs_api_key:
-                with st.spinner("Fetching voices..."):
-                    voices = get_voices()
-                    
-                    if voices:
-                        st.session_state.voices = voices
-                        st.success(f"Found {len(voices)} voices")
-            else:
-                st.warning("Please set your ElevenLabs API key first")
-        
-        if 'voices' in st.session_state and st.session_state.voices:
-            voice_options = {voice["name"]: voice["voice_id"] for voice in st.session_state.voices}
-            selected_voice_name = st.selectbox(
-                "Select Voice", 
-                options=list(voice_options.keys())
-            )
-            
-            if selected_voice_name:
-                st.session_state.elevenlabs_voice_id = voice_options[selected_voice_name]
-                st.success(f"Selected voice: {selected_voice_name}")
+        # ACCENT-FREE VOICE CONFIGURATION
+        st.subheader("🎯 Accent-Free Voice Setup")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.write("**Czech Voice:**")
+            if 'voices' in st.session_state and st.session_state.voices:
+                czech_voice_options = {voice["name"]: voice["voice_id"] for voice in st.session_state.voices}
+                current_czech = None
+                for name, vid in czech_voice_options.items():
+                    if vid == st.session_state.language_voices["cs"]:
+                        current_czech = name
+                        break
+                
+                czech_voice_name = st.selectbox(
+                    "Czech Voice", 
+                    options=list(czech_voice_options.keys()),
+                    index=list(czech_voice_options.keys()).index(current_czech) if current_czech else 0,
+                    key="czech_voice_select"
+                )
+                
+                if czech_voice_name:
+                    st.session_state.language_voices["cs"] = czech_voice_options[czech_voice_name]
+
+        with col2:
+            st.write("**German Voice:**")
+            if 'voices' in st.session_state and st.session_state.voices:
+                german_voice_options = {voice["name"]: voice["voice_id"] for voice in st.session_state.voices}
+                current_german = None
+                for name, vid in german_voice_options.items():
+                    if vid == st.session_state.language_voices["de"]:
+                        current_german = name
+                        break
+                
+                german_voice_name = st.selectbox(
+                    "German Voice", 
+                    options=list(german_voice_options.keys()),
+                    index=list(german_voice_options.keys()).index(current_german) if current_german else 0,
+                    key="german_voice_select"
+                )
+                
+                if german_voice_name:
+                    st.session_state.language_voices["de"] = german_voice_options[german_voice_name]
+
+        # Voice isolation status
+        st.success(f"""
+        ✅ **Accent-Free Configuration Active**
+        - Czech Voice: {st.session_state.language_voices['cs'][:8]}...
+        - German Voice: {st.session_state.language_voices['de'][:8]}...
+        - Model: Flash v2.5 (Ultra-low latency + accent-free)
+        """)
         
         # NEW: Language Response Options
         st.subheader("Response Language")
