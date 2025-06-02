@@ -1511,6 +1511,37 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
 def clean_and_fix_response(user_input, response_text):
     """Clean response and ensure it makes conversational sense"""
     
+    # CRITICAL FIX: Check user's language preference first
+    response_language = st.session_state.response_language
+    
+    # If user selected single language mode, enforce it strictly
+    if response_language == "cs":
+        # Force Czech only response
+        clean_text = re.sub(r'\[de\].*?(?=\[cs\]|$)', '', response_text, flags=re.DOTALL)
+        clean_text = re.sub(r'\[cs\]\s*', '', clean_text).strip()
+        if not clean_text:
+            if 'guten tag' in user_input.lower() or 'wie geht' in user_input.lower():
+                return "[cs] Dobrý den! Mám se dobře, děkuji."
+            elif 'jak se máte' in user_input.lower():
+                return "[cs] Mám se dobře, děkuji! A vy?"
+            else:
+                return "[cs] Děkuji za vaši zprávu."
+        return f"[cs] {clean_text}"
+    
+    elif response_language == "de":
+        # Force German only response  
+        clean_text = re.sub(r'\[cs\].*?(?=\[de\]|$)', '', response_text, flags=re.DOTALL)
+        clean_text = re.sub(r'\[de\]\s*', '', clean_text).strip()
+        if not clean_text:
+            if 'dobrý den' in user_input.lower() or 'jak se máte' in user_input.lower():
+                return "[de] Guten Tag! Mir geht es gut, danke."
+            elif 'guten tag' in user_input.lower() or 'wie geht' in user_input.lower():
+                return "[de] Mir geht es gut, danke! Und Ihnen?"
+            else:
+                return "[de] Vielen Dank für Ihre Nachricht."
+        return f"[de] {clean_text}"
+    
+    # For "both" and "auto" modes, use existing logic
     # Remove any English explanations that shouldn't be there
     lines = response_text.split('\n')
     cleaned_lines = []
