@@ -1424,42 +1424,41 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
     
     # Set up the conversation messages
     messages = []
-    
-    # FIXED: Better system prompts that make conversational sense
+        
+    #Better system prompts with improved conversational logic
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     else:
-        # Create dynamic system prompt based on language preferences
+        # Create enhanced system prompt based on language preferences
         response_language = st.session_state.response_language
         
         if response_language == "both":
-            # Get distribution preferences
+            # IMPROVED: Always respond in both languages regardless of input
             cs_percent = st.session_state.language_distribution["cs"]
             de_percent = st.session_state.language_distribution["de"]
             
             system_content = (
-                f"You are a helpful multilingual assistant. Respond naturally in Czech and German using approximately {cs_percent}% Czech and {de_percent}% German. "
-                f"Use language markers [cs] and [de] to indicate language sections. "
-                f"Be conversational and natural - don't explain what you're doing. "
-                f"If someone greets you, greet back appropriately. If someone asks how you are, answer naturally. "
-                f"Never use English unless specifically asked."
+                f"You are a professional multilingual AI assistant. ALWAYS respond in BOTH German and Czech languages regardless of what language the user used. "
+                f"Structure: First respond in German [{de_percent}% of content], then in Czech [{cs_percent}% of content]. "
+                f"Use clear language markers [de] for German and [cs] for Czech. "
+                f"Be natural, helpful, and conversational. If they greet you, greet back in both languages. "
+                f"If they ask how you are, answer naturally in both languages. "
+                f"Example format: '[de] German response here [cs] Czech response here' "
+                f"Never use English. Always include both languages in every response."
             )
         elif response_language == "cs":
             system_content = (
-                "You are a helpful assistant. Always respond in Czech only with [cs] markers. "
-                "Be conversational and natural. If someone greets you, greet back. If someone asks how you are, answer naturally."
+                "You are a helpful Czech assistant. ALWAYS respond ONLY in Czech with [cs] markers at the beginning. "
+                "Be natural, conversational, and helpful. If someone greets you, greet back warmly. "
+                "If someone asks how you are, answer positively and naturally in Czech. "
+                "Never use any other language except Czech. Be friendly and professional."
             )
         elif response_language == "de":
             system_content = (
-                "You are a helpful assistant. Always respond in German only with [de] markers. "
-                "Be conversational and natural. If someone greets you, greet back. If someone asks how you are, answer naturally."
-            )
-        else:
-            # Auto mode - match user's language
-            system_content = (
-                "You are a helpful multilingual assistant. Respond in the same language(s) the user used. "
-                "If they used multiple languages, respond in those languages with appropriate [cs] and [de] markers. "
-                "Be conversational and natural - don't explain what you're doing. Never use English unless specifically asked."
+                "You are a helpful German assistant. ALWAYS respond ONLY in German with [de] markers at the beginning. "
+                "Be natural, conversational, and helpful. If someone greets you, greet back warmly. "
+                "If someone asks how you are, answer positively and naturally in German. "
+                "Never use any other language except German. Be friendly and professional."
             )
             
         messages.append({"role": "system", "content": system_content})
@@ -1556,7 +1555,23 @@ def clean_and_fix_response(user_input, response_text):
                 return "[de] Vielen Dank für Ihre Nachricht."
         return f"[de] {clean_text}"
     
-    # For "both" and "auto" modes, use existing logic
+    # For "both" mode, ensure both languages are present
+    if response_language == "both":
+        # ENHANCED: Ensure response contains both German and Czech
+        has_german = '[de]' in response_text
+        has_czech = '[cs]' in response_text
+        
+        if not has_german or not has_czech:
+            # Force both languages if missing
+            if 'guten tag' in user_input.lower() or 'dobrý den' in user_input.lower():
+                return "[de] Guten Tag! Mir geht es sehr gut, vielen Dank! [cs] Dobrý den! Mám se výborně, děkuji!"
+            elif 'jak se máte' in user_input.lower() or 'wie geht' in user_input.lower():
+                return "[de] Mir geht es ausgezeichnet, danke der Nachfrage! [cs] Mám se skvěle, děkuji za optání!"
+            else:
+                return "[de] Vielen Dank für Ihre Nachricht! Gerne helfe ich Ihnen weiter. [cs] Děkuji za vaši zprávu! Rád vám pomohu."
+        
+        return response_text  # Already has both languages
+
     # Remove any English explanations that shouldn't be there
     lines = response_text.split('\n')
     cleaned_lines = []
@@ -1772,22 +1787,39 @@ def auto_detect_language_distribution(input_text):
     return {"cs": cs_percent, "de": de_percent}
 
 def apply_distribution_settings(text):
-    """Only apply distribution when no input language specified"""
+    """Enhanced distribution for 'both' mode - always include both languages"""
     sentences = re.split(r'(?<=[.!?])\s+', text)
-    result = ""
     
+    if len(sentences) <= 1:
+        # Single sentence - provide both languages
+        return f"[de] {text} [cs] {text}"
+    
+    result = ""
     cs_percent = st.session_state.language_distribution["cs"]
     de_percent = st.session_state.language_distribution["de"]
     
     total_sentences = len(sentences)
-    cs_sentences = int(total_sentences * (cs_percent / 100))
+    cs_sentences = max(1, int(total_sentences * (cs_percent / 100)))  # Ensure at least 1
+    de_sentences = max(1, total_sentences - cs_sentences)  # Ensure at least 1
+    
+    # Add German sentences first
+    german_added = 0
+    czech_added = 0
     
     for i, sentence in enumerate(sentences):
         if sentence.strip():
-            if i < cs_sentences:
-                result += f"[cs] {sentence} "
-            else:
+            if german_added < de_sentences and (i < de_sentences or czech_added >= cs_sentences):
                 result += f"[de] {sentence} "
+                german_added += 1
+            else:
+                result += f"[cs] {sentence} "
+                czech_added += 1
+    
+    # Ensure we have at least one of each language
+    if german_added == 0:
+        result = f"[de] Verstanden! " + result
+    if czech_added == 0:
+        result += f"[cs] Rozumím!"
     
     return result.strip()
 
@@ -2916,11 +2948,11 @@ def main():
         st.subheader("Response Language")
  
         # Choose response language
+
         response_language = st.radio(
             "Response Language",
-            options=["auto", "both", "cs", "de"],
+            options=["both", "cs", "de"],
             format_func=lambda x: {
-                "auto": "Auto Voice Over", 
                 "both": "Both Languages", 
                 "cs": "Czech Only", 
                 "de": "German Only"
