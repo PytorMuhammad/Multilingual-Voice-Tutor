@@ -60,11 +60,11 @@ if 'voice_settings' not in st.session_state:
             "stability": 0.6,
             "similarity_boost": 0.7
         },
-        "cs": {  # Czech settings
-            "stability": 0.65,  # Higher stability for more consistent Czech
-            "similarity_boost": 0.6  # Lower similarity to reduce German influence
+        "en": {  # English settings - TESTING
+            "stability": 0.65,
+            "similarity_boost": 0.6
         },
-        "de": {  # German settings
+        "hi": {  # Hindi settings - TESTING
             "stability": 0.55,
             "similarity_boost": 0.7
         }
@@ -82,8 +82,8 @@ if 'whisper_model' not in st.session_state:
 # Language distribution preference
 if 'language_distribution' not in st.session_state:
     st.session_state.language_distribution = {
-        "cs": 50,  # Czech percentage
-        "de": 50   # German percentage
+        "en": 50,  # English percentage - TESTING
+        "hi": 50   # Hindi percentage - TESTING
     }
 
 # Language preference for response
@@ -91,9 +91,10 @@ if 'response_language' not in st.session_state:
     st.session_state.response_language = "both"  # Options: "cs", "de", "both"
 
 # Language codes and settings
+# Language codes and settings - TESTING MODE
 SUPPORTED_LANGUAGES = {
-    "cs": {"name": "Czech", "confidence_threshold": 0.65},
-    "de": {"name": "German", "confidence_threshold": 0.65}
+    "en": {"name": "English", "confidence_threshold": 0.65},
+    "hi": {"name": "Hindi", "confidence_threshold": 0.65}
 }
 
 # Performance monitoring
@@ -1209,21 +1210,16 @@ class SpeechRecognizer:
         
         # Second check: vocabulary analysis
         # Czech-specific common words (expanded list)
-        czech_words = {
-            "jsem", "jsi", "je", "jsou", "byl", "byla", "bylo", "být", "budu", 
-            "máme", "mám", "prosím", "děkuji", "ahoj", "dobrý", "dobře", "ano", "ne",
-            "já", "ty", "on", "ona", "my", "vy", "oni", "den", "noc", "chci", "dnes",
-            "zítra", "včera", "tady", "tam", "proč", "kde", "kdy", "jak", "co", "kdo",
-            "to", "ten", "ta", "mít", "jít", "dělat", "vidět", "slyšet", "vědět"
+        # English-specific words - TESTING
+        english_words = {
+            "hello", "thank", "you", "good", "morning", "how", "are", "yes", "no",
+            "the", "and", "is", "was", "have", "has", "will", "would", "could", "should"
         }
-        
-        # German-specific common words (expanded list)
-        german_words = {
-            "ich", "du", "er", "sie", "es", "wir", "ihr", "sind", "ist", "bin",
-            "habe", "haben", "hatte", "war", "gewesen", "bitte", "danke", "gut", "ja", "nein",
-            "der", "die", "das", "ein", "eine", "zu", "von", "mit", "für", "auf",
-            "wenn", "aber", "oder", "und", "nicht", "auch", "so", "wie", "was", "wo",
-            "wann", "wer", "warum", "möchte", "kann", "muss", "soll", "darf", "will"
+
+        # Hindi-specific words - TESTING
+        hindi_words = {
+            "namaste", "dhanyawad", "aap", "main", "hai", "hoon", "kaise", "kya", "haan", "nahi",
+            "acha", "theek", "kaise", "kahan", "kab", "kyun", "kaun", "kitna", "bahut", "accha"
         }
         
         # Clean and tokenize text
@@ -1231,8 +1227,8 @@ class SpeechRecognizer:
         words = clean_text.split()
         
         # Count word occurrences with weighted importance
-        czech_word_count = sum(1 for word in words if word in czech_words)
-        german_word_count = sum(1 for word in words if word in german_words)
+        czech_word_count = sum(1 for word in words if word in english_words)
+        german_word_count = sum(1 for word in words if word in hindi_words)
         
         # Word-based confidence
         word_confidence = 0
@@ -2247,18 +2243,19 @@ def generate_speech(text, language_code=None, voice_id=None):
     model_id = "eleven_flash_v2_5"  # 🔥 ACCENT-FREE MODEL
 
     # ACCENT-ISOLATION SETTINGS
-    if language_code == "cs":  # Czech
+    # ACCENT-ISOLATION SETTINGS - TESTING MODE
+    if language_code == "en":  # English
         voice_settings = {
-            "stability": 0.95,        # 🎯 MAXIMUM stability for pure Czech
-            "similarity_boost": 0.75, # 🎯 REDUCED similarity to prevent German bleeding
-            "style": 0.85,           # 🎯 HIGH style for natural Czech expression
+            "stability": 0.95,        # 🎯 MAXIMUM stability for pure English
+            "similarity_boost": 0.75, # 🎯 REDUCED similarity to prevent Hindi bleeding
+            "style": 0.85,           # 🎯 HIGH style for natural English
             "use_speaker_boost": True
         }
-    elif language_code == "de":  # German  
+    elif language_code == "hi":  # Hindi  
         voice_settings = {
-            "stability": 0.90,        # 🎯 HIGH stability for pure German
+            "stability": 0.90,        # 🎯 HIGH stability for pure Hindi
             "similarity_boost": 0.80, # 🎯 CONTROLLED similarity 
-            "style": 0.75,           # 🎯 NATURAL German expression
+            "style": 0.75,           # 🎯 NATURAL Hindi expression
             "use_speaker_boost": True
         }
     else:
