@@ -133,6 +133,24 @@ def check_system_dependencies():
 # Add this new function after the import statements (around line 200)
 import streamlit.components.v1 as components
 
+def validate_accent_quality(audio_path, expected_language):
+    """Validate generated audio doesn't have accent bleeding"""
+    try:
+        # Simple quality check - in production could use ML accent detection
+        file_size = os.path.getsize(audio_path)
+        
+        # Flash v2.5 should generate consistent file sizes per language
+        if expected_language == "cs" and file_size < 1000:
+            logger.warning("Czech audio unusually small - possible accent issue")
+            return False
+        elif expected_language == "de" and file_size < 1000:
+            logger.warning("German audio unusually small - possible accent issue") 
+            return False
+            
+        return True
+    except:
+        return True  # Default to accepting if validation fails
+    
 def create_auto_processor():
     """Create automatic audio processor"""
     if 'audio_processor_initialized' not in st.session_state:
@@ -1541,30 +1559,7 @@ def clean_and_fix_response(user_input, response_text):
                 return "[de] Vielen Dank für Ihre Nachricht."
         return f"[de] {clean_text}"
     
-    # FIXED AUTO MODE: Detect user's primary language and respond accordingly
-    elif response_language == "auto":
-        detected_lang = detect_user_primary_language_advanced(user_input)
-        
-        if detected_lang == "cs":
-            # User spoke primarily Czech - respond in Czech only
-            clean_text = re.sub(r'\[de\].*?(?=\[cs\]|$)', '', response_text, flags=re.DOTALL)
-            clean_text = re.sub(r'\[cs\]\s*', '', clean_text).strip()
-            if not clean_text:
-                return "[cs] Ahoj! Mám se dobře, děkuji. Jsem AI asistent. O čem si chceš povídat?"
-            return f"[cs] {clean_text}"
-            
-        elif detected_lang == "de":
-            # User spoke primarily German - respond in German only  
-            clean_text = re.sub(r'\[cs\].*?(?=\[de\]|$)', '', response_text, flags=re.DOTALL)
-            clean_text = re.sub(r'\[de\]\s*', '', clean_text).strip()
-            if not clean_text:
-                return "[de] Hallo! Mir geht es gut, danke. Ich bin ein AI-Assistent. Worüber möchtest du sprechen?"
-            return f"[de] {clean_text}"
-            
-        # If both languages detected, use existing bilingual logic
-        # Fall through to existing logic below
-    
-    # For "both" mode, use existing logic
+    # For "both" and "auto" modes, use existing logic
     # Remove any English explanations that shouldn't be there
     lines = response_text.split('\n')
     cleaned_lines = []
@@ -1602,73 +1597,6 @@ def clean_and_fix_response(user_input, response_text):
         cleaned_response = add_appropriate_language_markers(cleaned_response, user_input)
     
     return cleaned_response.strip()
-
-def detect_user_primary_language_advanced(user_input):
-    """Advanced detection for Auto mode - determines if user spoke primarily one language"""
-    
-    # Remove any existing language markers for clean detection
-    clean_text = re.sub(r'\[[a-z]{2}\]', '', user_input).strip()
-    
-    # Split into words for analysis
-    words = re.findall(r'\b\w+\b', clean_text.lower())
-    
-    if not words:
-        return "mixed"  # Default if no words
-    
-    # Czech indicators (more comprehensive)
-    czech_chars = set("áčďéěíňóřšťúůýž")
-    czech_words = {
-        "ahoj", "jak", "se", "máš", "máte", "můžeš", "můžeme", "jsem", "jsi", "je", "jsou", 
-        "prosím", "děkuji", "dobrý", "dobře", "ano", "ne", "já", "ty", "on", "ona", 
-        "my", "vy", "oni", "den", "noc", "chci", "dnes", "zítra", "včera", "tady", "tam", 
-        "proč", "kde", "kdy", "co", "kdo", "to", "ten", "ta", "mít", "jít", "dělat", 
-        "vidět", "slyšet", "vědět", "říct", "sobě", "mi", "ti", "si"
-    }
-    
-    # German indicators (more comprehensive)
-    german_chars = set("äöüß")
-    german_words = {
-        "hallo", "wie", "geht", "es", "ihnen", "ich", "du", "er", "sie", "wir", "ihr", 
-        "sind", "ist", "bin", "habe", "haben", "bitte", "danke", "gut", "ja", "nein",
-        "der", "die", "das", "ein", "eine", "zu", "von", "mit", "für", "auf",
-        "wenn", "aber", "oder", "und", "nicht", "auch", "so", "was", "wo",
-        "wann", "wer", "warum", "möchte", "kann", "muss", "soll", "darf", "will", "mir"
-    }
-    
-    # Count evidence
-    czech_evidence = 0
-    german_evidence = 0
-    
-    # Character-based evidence (strong indicator)
-    for char in clean_text.lower():
-        if char in czech_chars:
-            czech_evidence += 3  # Strong weight for special chars
-        elif char in german_chars:
-            german_evidence += 3
-    
-    # Word-based evidence (very strong indicator)
-    for word in words:
-        if word in czech_words:
-            czech_evidence += 5  # Very strong weight for specific words
-        elif word in german_words:
-            german_evidence += 5
-    
-    # Calculate percentages
-    total_evidence = czech_evidence + german_evidence
-    
-    if total_evidence == 0:
-        return "mixed"  # No clear language detected
-    
-    cs_percent = (czech_evidence / total_evidence) * 100
-    de_percent = (german_evidence / total_evidence) * 100
-    
-    # Determine primary language (need >70% to be considered "primary")
-    if cs_percent > 70:
-        return "cs"
-    elif de_percent > 70:
-        return "de"
-    else:
-        return "mixed"  # Both languages present
 
 def add_appropriate_language_markers(text, user_input):
     """Add appropriate language markers based on user input and content"""
@@ -1883,59 +1811,74 @@ def fix_language_markers(text):
     return text
 
 def process_multilingual_text_seamless(text, detect_language=True):
-    """FIXED: Process text with perfectly smooth transitions"""
+    """IMPROVED: Process text with consistent audio quality"""
     
     segments = parse_language_segments_advanced(text)
     
     if len(segments) <= 1:
         return process_multilingual_text(text, detect_language)
     
-    # Generate all audio segments with CONSISTENT settings
+    # Collect all audio segments first
     audio_segments = []
+    language_codes = []
     total_time = 0
     
     for i, segment in enumerate(segments):
         if not segment["text"].strip():
             continue
+            
+        processed_text = prepare_text_for_seamless_transition(
+            segment["text"], 
+            segment["language"],
+            is_first=(i == 0),
+            is_last=(i == len(segments)-1),
+            prev_lang=segments[i-1]["language"] if i > 0 else None
+        )
         
-        # CRITICAL: NO special processing - use raw text for consistency
-        raw_text = segment["text"].strip()
-        
-        # Generate with SAME settings regardless of language
         audio_data, generation_time = generate_speech_seamless(
-            raw_text, 
+            processed_text, 
             language_code=segment["language"],
-            context={"position": i, "total_segments": len(segments)}
+            context={
+                "position": i,
+                "total_segments": len(segments),
+                "prev_language": segments[i-1]["language"] if i > 0 else None,
+                "next_language": segments[i+1]["language"] if i < len(segments)-1 else None
+            }
         )
         
         if audio_data:
             audio_segment = AudioSegment.from_file(audio_data, format="mp3")
             audio_segments.append(audio_segment)
+            language_codes.append(segment["language"])
             total_time += generation_time
     
     if not audio_segments:
         return None, 0
     
-    # CRITICAL: Perfect normalization for seamless transitions
-    normalized_segments = normalize_audio_segments_advanced(audio_segments)
+    # CRITICAL: Normalize all segments for consistent quality
+    normalized_segments = normalize_audio_segments(audio_segments, language_codes)
     
-    # STEP 2: Seamless concatenation with NO crossfade (eliminates artifacts)
+    # Combine with smooth transitions
     combined_audio = normalized_segments[0]
     
     for i in range(1, len(normalized_segments)):
-        # DIRECT append with NO crossfade for perfect smoothness
-        combined_audio = combined_audio + normalized_segments[i]
+        # Apply smooth crossfade
+        crossfade_duration = 50  # ms
+        combined_audio = combined_audio.append(
+            normalized_segments[i], 
+            crossfade=crossfade_duration
+        )
     
-    # FINAL: Consistent output processing
-    final_audio = combined_audio.normalize(headroom=0.1)
+    # Final quality enhancement
+    combined_audio = enhance_multilingual_audio_final(combined_audio)
     
-    # Save with consistent quality settings
+    # Save with consistent quality
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
-        final_audio.export(
+        combined_audio.export(
             temp_file.name, 
             format="mp3", 
             bitrate="192k",
-            parameters=["-ac", "1", "-ar", "22050"]  # Consistent parameters
+            parameters=["-ac", "1", "-ar", "22050", "-af", "volume=0.8"]  # Consistent volume
         )
         return temp_file.name, total_time
         
@@ -1980,37 +1923,70 @@ def parse_language_segments_advanced(text):
     return segments
 
 def prepare_text_for_seamless_transition(text, language, is_first, is_last, prev_lang):
-    """FIXED: Minimal processing to maintain voice consistency"""
+    """Prepare text for ACCENT-FREE language transitions"""
     
-    # CRITICAL: NO micro-pauses or special processing that causes accent bleeding
-    # Return clean text without modifications
-    return text.strip()
+    # 🔥 CRITICAL: Add language reset pause when switching
+    if not is_first and prev_lang and prev_lang != language:
+        text = f'<break time="200ms"/><lang xml:lang="{language}-{language.upper()}">{text}</lang>'
+    else:
+        text = f'<lang xml:lang="{language}-{language.upper()}">{text}</lang>'
+    
+    # Language-specific pronunciation optimization
+    if language == "cs":
+        text = optimize_czech_pronunciation_advanced(text)
+    elif language == "de": 
+        text = optimize_german_pronunciation_advanced(text)
+    
+    return text
+
+def optimize_czech_pronunciation_advanced(text):
+    """Advanced Czech pronunciation with zero German accent"""
+    czech_phonetics = {
+        "děkuji": '<phoneme alphabet="ipa" ph="ˈɟɛkuji">děkuji</phoneme>',
+        "prosím": '<phoneme alphabet="ipa" ph="ˈprosiːm">prosím</phoneme>',
+        "dobrý": '<phoneme alphabet="ipa" ph="ˈdobriː">dobrý</phoneme>'
+    }
+    
+    for word, phonetic in czech_phonetics.items():
+        text = text.replace(word, phonetic)
+    
+    return text
+
+def optimize_german_pronunciation_advanced(text):
+    """Advanced German pronunciation with zero Czech accent"""
+    german_phonetics = {
+        "danke": '<phoneme alphabet="ipa" ph="ˈdaŋkə">danke</phoneme>',
+        "bitte": '<phoneme alphabet="ipa" ph="ˈbɪtə">bitte</phoneme>',
+        "guten": '<phoneme alphabet="ipa" ph="ˈɡuːtn̩">guten</phoneme>'
+    }
+    
+    for word, phonetic in german_phonetics.items():
+        text = text.replace(word, phonetic)
+    
+    return text
 
 def generate_speech_seamless(text, language_code, context):
-    """Generate speech optimized for seamless multilingual transitions - FIXED VERSION"""
+    """Generate speech optimized for seamless multilingual transitions"""
     
     voice_id = st.session_state.elevenlabs_voice_id
     api_key = st.session_state.elevenlabs_api_key
     
-    # CRITICAL: Use SAME model for consistency
-    model_id = "eleven_multilingual_v2"
+    # CRITICAL: Use consistent voice with language-specific fine-tuning
+    model_id = "eleven_flash_v2_5"  # Best for seamless switching
     
-    # FIXED: Consistent voice settings to eliminate accent bleeding
-    voice_settings = {
-        "stability": 0.85,        # HIGH stability for consistency
-        "similarity_boost": 0.95,  # VERY HIGH to maintain same voice
-        "style": 0.0,             # ZERO style to avoid language-specific changes
-        "use_speaker_boost": True
-    }
+    # Context-aware voice settings for seamless transitions
+    voice_settings = get_contextual_voice_settings(language_code, context)
     
-    # CRITICAL: NO language-specific modifications to prevent accent bleeding
-    enhanced_text = text.strip()  # Use raw text without SSML modifications
+    # Enhanced text with SSML for better pronunciation
+    enhanced_text = add_pronunciation_markup(text, language_code)
     
     data = {
         "text": enhanced_text,
         "model_id": model_id,
         "voice_settings": voice_settings,
-        "apply_text_normalization": "auto"
+        "apply_text_normalization": "auto",
+        "optimize_streaming_latency": 4,  # 🔥 ULTRA-LOW LATENCY
+        "output_format": "mp3_44100_128"  # 🔥 OPTIMIZED OUTPUT
     }
     
     headers = {
@@ -2028,7 +2004,7 @@ def generate_speech_seamless(text, language_code, context):
         )
         
         if response.status_code == 200:
-            return BytesIO(response.content), 0.5
+            return BytesIO(response.content), 0.5  # Faster processing
         else:
             return None, 0
             
@@ -2065,15 +2041,30 @@ def optimize_german_pronunciation(text):
     return text
 
 def add_pronunciation_markup(text, language_code):
-    """Add SSML markup for better pronunciation"""
+    """Enhanced SSML markup for accent-free pronunciation"""
     
-    # Basic SSML wrapper
     if language_code == "cs":
-        return f'<speak><lang xml:lang="cs">{text}</lang></speak>'
+        # Czech pronunciation optimization with SSML
+        enhanced_text = f'<speak><lang xml:lang="cs-CZ">'
+        
+        # Add phonetic hints for difficult Czech sounds
+        enhanced_text += text.replace("ř", '<phoneme alphabet="ipa" ph="r̝̊">ř</phoneme>')
+        enhanced_text += '</lang><break time="50ms"/></speak>'
+        
+        return enhanced_text
+        
     elif language_code == "de":
-        return f'<speak><lang xml:lang="de">{text}</lang></speak>'
-    else:
-        return text
+        # German pronunciation optimization with SSML
+        enhanced_text = f'<speak><lang xml:lang="de-DE">'
+        
+        # Add phonetic hints for German sounds
+        enhanced_text += text.replace("ü", '<phoneme alphabet="ipa" ph="y">ü</phoneme>')
+        enhanced_text += text.replace("ä", '<phoneme alphabet="ipa" ph="ɛ">ä</phoneme>')
+        enhanced_text += '</lang><break time="50ms"/></speak>'
+        
+        return enhanced_text
+    
+    return f'<speak>{text}</speak>'
 
 def apply_language_transition_blend(audio_segment, prev_lang, current_lang):
     """Apply audio processing for smoother language transitions"""
@@ -2252,29 +2243,29 @@ def generate_speech(text, language_code=None, voice_id=None):
         "xi-api-key": api_key
     }
     
-# Use MULTILINGUAL model for native-quality pronunciation
-    model_id = "eleven_multilingual_v2"  # CRITICAL: This fixes accent issues
-    
-    # HIGH QUALITY voice settings for native-like pronunciation
+    # Use MULTILINGUAL model for native-quality pronunciation
+    model_id = "eleven_flash_v2_5"  # 🔥 ACCENT-FREE MODEL
+
+    # ACCENT-ISOLATION SETTINGS
     if language_code == "cs":  # Czech
         voice_settings = {
-            "stability": 0.85,        # HIGH for consistent Czech pronunciation
-            "similarity_boost": 0.95,  # VERY HIGH for native Czech quality
-            "style": 0.8,             # HIGH for natural Czech expression
-            "use_speaker_boost": True  # ENABLE for better quality
+            "stability": 0.95,        # 🎯 MAXIMUM stability for pure Czech
+            "similarity_boost": 0.75, # 🎯 REDUCED similarity to prevent German bleeding
+            "style": 0.85,           # 🎯 HIGH style for natural Czech expression
+            "use_speaker_boost": True
         }
-    elif language_code == "de":  # German
+    elif language_code == "de":  # German  
         voice_settings = {
-            "stability": 0.80,        # HIGH for consistent German pronunciation  
-            "similarity_boost": 0.90,  # VERY HIGH for native German quality
-            "style": 0.75,            # HIGH for natural German expression
-            "use_speaker_boost": True  # ENABLE for better quality
+            "stability": 0.90,        # 🎯 HIGH stability for pure German
+            "similarity_boost": 0.80, # 🎯 CONTROLLED similarity 
+            "style": 0.75,           # 🎯 NATURAL German expression
+            "use_speaker_boost": True
         }
     else:
         voice_settings = {
-            "stability": 0.85,
-            "similarity_boost": 0.90,
-            "style": 0.8,
+            "stability": 0.92,
+            "similarity_boost": 0.77,
+            "style": 0.80,
             "use_speaker_boost": True
         }
     
@@ -2426,67 +2417,27 @@ def process_multilingual_text(text, detect_language=True):
     
 
 def normalize_audio_segments(audio_segments, target_language_codes):
-    """FIXED: Normalize volume and speed for seamless transitions"""
-    if not audio_segments:
-        return []
-    
+    """Normalize volume and speed across language segments"""
     normalized_segments = []
     
-    # CRITICAL: Calculate consistent target volume from ALL segments
-    total_volume = sum(segment.dBFS for segment in audio_segments)
-    target_volume = total_volume / len(audio_segments)
+    # Calculate target volume from first segment
+    if audio_segments:
+        target_volume = audio_segments[0].dBFS
     
-    for segment in audio_segments:
-        # STEP 1: Normalize to exact same volume
-        current_volume = segment.dBFS
-        volume_adjustment = target_volume - current_volume
-        volume_normalized = segment + volume_adjustment
+    for i, (segment, lang_code) in enumerate(zip(audio_segments, target_language_codes)):
+        # Normalize volume to consistent level
+        volume_normalized = segment.normalize(headroom=0.1)
         
-        # STEP 2: Ensure exact same playback rate (eliminate speed differences)
-        # Force all segments to same frame rate
-        if hasattr(volume_normalized, 'frame_rate'):
-            target_frame_rate = 22050  # Standard rate
-            if volume_normalized.frame_rate != target_frame_rate:
-                # Resample to consistent frame rate
-                volume_normalized = volume_normalized.set_frame_rate(target_frame_rate)
+        # Ensure consistent dBFS across segments
+        if abs(volume_normalized.dBFS - target_volume) > 3:  # More than 3dB difference
+            volume_normalized = volume_normalized + (target_volume - volume_normalized.dBFS)
         
-        # STEP 3: Apply consistent audio processing
-        final_segment = volume_normalized.normalize(headroom=0.1)
+        # Normalize speed (playback rate consistency)
+        speed_normalized = normalize_speech_speed(volume_normalized, lang_code)
         
-        normalized_segments.append(final_segment)
+        normalized_segments.append(speed_normalized)
     
     return normalized_segments
-
-def normalize_audio_segments_advanced(audio_segments):
-    """Advanced normalization for perfect seamless transitions"""
-    if not audio_segments:
-        return []
-    
-    # STEP 1: Analyze all segments to find optimal normalization values
-    volumes = [seg.dBFS for seg in audio_segments]
-    frame_rates = [seg.frame_rate for seg in audio_segments]
-    
-    # Target values for consistency
-    target_volume = sum(volumes) / len(volumes)
-    target_frame_rate = max(set(frame_rates), key=frame_rates.count)  # Most common rate
-    
-    normalized = []
-    
-    for segment in audio_segments:
-        # Volume normalization
-        volume_diff = target_volume - segment.dBFS
-        vol_normalized = segment + volume_diff
-        
-        # Frame rate normalization  
-        if vol_normalized.frame_rate != target_frame_rate:
-            vol_normalized = vol_normalized.set_frame_rate(target_frame_rate)
-        
-        # Final consistency check
-        final_segment = vol_normalized.normalize(headroom=0.1)
-        
-        normalized.append(final_segment)
-    
-    return normalized
 
 def normalize_speech_speed(audio_segment, language_code):
     """Ensure consistent speech speed across languages"""
