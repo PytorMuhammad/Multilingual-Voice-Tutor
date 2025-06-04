@@ -1925,8 +1925,118 @@ def fix_language_markers(text):
     
     return text
 
+# 🎯 CORRECTED APPROACH: Single Voice with Accent-Free Language Switching
+
+def generate_speech_with_language_voice(text, language_code, segment_position=0, total_segments=1):
+    """🔥 CORRECTED: Use SAME voice with language-specific pronunciation settings"""
+    
+    api_key = st.session_state.elevenlabs_api_key
+    if not api_key:
+        return None, 0
+    
+    # 🎯 CRITICAL FIX: Use SAME voice ID for consistency
+    voice_id = st.session_state.elevenlabs_voice_id  # Same voice for all languages!
+    
+    # 🔥 NEW: Language-specific pronunciation optimization (not different voices)
+    voice_settings = get_accent_free_settings(language_code, segment_position, total_segments)
+    
+    # 🎯 CRITICAL: Enhanced SSML for accent-free pronunciation
+    enhanced_text = create_accent_free_ssml(text, language_code)
+    
+    data = {
+        "text": enhanced_text,
+        "model_id": "eleven_multilingual_v2",  # Best for accent control
+        "voice_settings": voice_settings,
+        "apply_text_normalization": "auto"
+    }
+    
+    headers = {
+        "Accept": "audio/mpeg",
+        "Content-Type": "application/json",
+        "xi-api-key": api_key
+    }
+    
+    start_time = time.time()
+    
+    try:
+        response = requests.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",  # Same voice!
+            json=data,
+            headers=headers,
+            timeout=10
+        )
+        
+        generation_time = time.time() - start_time
+        
+        if response.status_code == 200:
+            logger.info(f"✅ Generated accent-free {language_code} with same voice in {generation_time:.2f}s")
+            return BytesIO(response.content), generation_time
+        else:
+            logger.error(f"TTS error: {response.status_code}")
+            return None, generation_time
+            
+    except Exception as e:
+        logger.error(f"Speech generation error: {str(e)}")
+        return None, time.time() - start_time
+
+def get_accent_free_settings(language_code, position, total_segments):
+    """🎯 OPTIMIZED: Voice settings for accent-free pronunciation with SAME voice"""
+    
+    # Base settings for consistency
+    base_settings = {
+        "stability": 0.75,          # Balanced for natural speech
+        "similarity_boost": 0.85,   # Maintain voice character
+        "style": 0.60,             # Natural expression
+        "use_speaker_boost": True   # Enhanced clarity
+    }
+    
+    # 🔥 NEW: Language-specific accent control (same voice, different pronunciation)
+    if language_code == "cs":
+        # Czech pronunciation optimization
+        base_settings.update({
+            "stability": 0.80,      # Slightly more stable for Czech sounds
+            "similarity_boost": 0.90,  # Higher similarity for consistency
+            "style": 0.65           # Natural Czech expression
+        })
+    elif language_code == "de":
+        # German pronunciation optimization
+        base_settings.update({
+            "stability": 0.78,      # Balanced for German sounds
+            "similarity_boost": 0.88,  # Maintain voice character
+            "style": 0.62           # Natural German expression
+        })
+    
+    # Enhance stability for mid-sentence transitions
+    if position > 0:
+        base_settings["stability"] = min(0.85, base_settings["stability"] + 0.03)
+    
+    return base_settings
+
+def create_accent_free_ssml(text, language_code):
+    """🎯 ENHANCED: Advanced SSML for accent-free pronunciation with same voice"""
+    
+    if not language_code:
+        return text
+    
+    # Clean text first
+    clean_text = text.strip()
+    
+    # 🔥 CRITICAL: Language-specific SSML for accent-free pronunciation
+    if language_code == "cs":
+        # Czech pronunciation with phonetic hints
+        enhanced_text = f'<speak><lang xml:lang="cs-CZ"><phoneme alphabet="ipa" ph="">ˈ</phoneme><prosody rate="0.92" pitch="+2st">{clean_text}</prosody></lang></speak>'
+    elif language_code == "de":
+        # German pronunciation with phonetic hints  
+        enhanced_text = f'<speak><lang xml:lang="de-DE"><phoneme alphabet="ipa" ph="">ˈ</phoneme><prosody rate="0.95" pitch="+1st">{clean_text}</prosody></lang></speak>'
+    else:
+        enhanced_text = clean_text
+    
+    return enhanced_text
+
+# 🎯 ALSO UPDATE: process_multilingual_text_seamless to use consistent voice
+
 def process_multilingual_text_seamless(text, detect_language=True):
-    """🎯 FIXED: Dual-voice synthesis for accent-free mid-sentence switching"""
+    """🎯 CORRECTED: Single voice with accent-free language switching"""
     
     # Parse language segments with improved mid-sentence detection
     segments = parse_language_segments_enhanced(text)
@@ -1935,7 +2045,7 @@ def process_multilingual_text_seamless(text, detect_language=True):
         # Single language - use existing method
         return process_multilingual_text(text, detect_language)
     
-    # 🔥 NEW: Dual-voice processing for mixed sentences
+    # 🔥 CORRECTED: Single voice processing with accent control
     audio_segments = []
     total_time = 0
     
@@ -1943,7 +2053,7 @@ def process_multilingual_text_seamless(text, detect_language=True):
         if not segment["text"].strip():
             continue
             
-        # 🎯 KEY FIX: Use language-specific voice for each segment
+        # 🎯 KEY FIX: Same voice, different language pronunciation
         audio_data, generation_time = generate_speech_with_language_voice(
             segment["text"], 
             language_code=segment["language"],
@@ -1964,15 +2074,15 @@ def process_multilingual_text_seamless(text, detect_language=True):
     if not audio_segments:
         return None, 0
     
-    # 🔥 NEW: Apply equal power crossfading between segments
+    # 🔥 IMPROVED: Smoother crossfading for same-voice transitions
     combined_audio = audio_segments[0]
     
     for i in range(1, len(audio_segments)):
-        # Apply smooth crossfade for seamless transition
-        combined_audio = apply_equal_power_crossfade(
+        # Apply very subtle crossfade (since it's the same voice)
+        combined_audio = apply_same_voice_crossfade(
             combined_audio, 
             audio_segments[i], 
-            crossfade_ms=150  # Optimized for natural speech
+            crossfade_ms=100  # Shorter for same voice
         )
     
     # Save final blended audio
@@ -1984,6 +2094,18 @@ def process_multilingual_text_seamless(text, detect_language=True):
             parameters=["-ac", "1", "-ar", "22050"]
         )
         return temp_file.name, total_time
+
+def apply_same_voice_crossfade(audio1, audio2, crossfade_ms=100):
+    """🔥 OPTIMIZED: Subtle crossfading for same voice transitions"""
+    
+    # Ensure both audio segments are normalized
+    audio1_norm = normalize_audio_volume(audio1, -18)
+    audio2_norm = normalize_audio_volume(audio2, -18)
+    
+    # Apply subtle crossfade (shorter duration since it's the same voice)
+    crossfaded = audio1_norm.append(audio2_norm, crossfade=crossfade_ms)
+    
+    return crossfaded
 
 def parse_language_segments_enhanced(text):
     """🎯 IMPROVED: Better parsing for mid-sentence language switches"""
