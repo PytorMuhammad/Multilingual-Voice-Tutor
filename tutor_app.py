@@ -1433,18 +1433,19 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
         response_language = st.session_state.response_language
         
         if response_language == "both":
-            # IMPROVED: Always respond in both languages regardless of input
+            # 🔥 FIXED: Natural code-switching prompt for Jan's requirement
             cs_percent = st.session_state.language_distribution["cs"]
             de_percent = st.session_state.language_distribution["de"]
             
             system_content = (
-                f"You are a professional multilingual AI assistant. ALWAYS respond in BOTH German and Czech languages regardless of what language the user used. "
-                f"Structure: First respond in German [{de_percent}% of content], then in Czech [{cs_percent}% of content]. "
-                f"Use clear language markers [de] for German and [cs] for Czech. "
-                f"Be natural, helpful, and conversational. If they greet you, greet back in both languages. "
-                f"If they ask how you are, answer naturally in both languages. "
-                f"Example format: '[de] German response here [cs] Czech response here' "
-                f"Never use English. Always include both languages in every response."
+                f"You are a Czech language tutor helping Czech speakers learn German. "
+                f"You should speak primarily in Czech (around {cs_percent}%) but naturally include German words, phrases, and examples within your Czech sentences when teaching German. "
+                f"This is called 'code-switching' - you mix languages naturally within the same sentence. "
+                f"For example: 'Chcete-li se představit v němčině, můžete říct: \"Mein Name ist [name].\" Takto se představujete.' "
+                f"Another example: 'Slovo pro \"dobrý den\" je \"Guten Tag\" - zkuste to říct.' "
+                f"Use [cs] at the start and embed German naturally within Czech explanations. "
+                f"Do NOT create separate [de] blocks. Instead, weave German seamlessly into Czech sentences. "
+                f"Be helpful, natural, and educational. Always respond as a Czech tutor teaching German."
             )
         elif response_language == "cs":
             system_content = (
