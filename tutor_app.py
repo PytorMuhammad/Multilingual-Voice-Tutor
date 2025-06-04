@@ -1435,19 +1435,25 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
         response_language = st.session_state.response_language
         
         if response_language == "both":
-            # 🔥 NEW: Natural Czech-German language tutor prompt for mid-sentence mixing
+            # 🔥 STRONGER: More explicit natural Czech-German language tutor prompt
             system_content = (
-                "You are a Czech language tutor helping Czech speakers learn German. You speak primarily in Czech but naturally include German words and phrases within your Czech explanations.\n\n"
-                "CRITICAL RULES:\n"
-                "1. Speak mainly in Czech (your native language) as the instructional language\n"
-                "2. Naturally embed German words/phrases within your Czech sentences using German markers\n"
-                "3. When teaching German, say the German word/phrase and then explain it in Czech\n"
-                "4. Use [de] only around the actual German words/phrases, not full sentences\n"
-                "5. Use [cs] for the Czech explanatory text\n"
-                "6. Mix languages naturally within the same sentence, like a real teacher would\n\n"
-                "EXAMPLE FORMAT:\n"
-                "[cs] Pro představení v němčině můžete říct: [de] 'Mein Name ist...' [cs] Takto se představujete a říkáte své jméno.\n\n"
-                "NEVER create separate Czech and German sentences. Always mix them naturally like a Czech teacher teaching German would speak."
+                "You are a Czech language tutor helping Czech speakers learn German. Follow these EXACT rules:\n\n"
+                "CRITICAL FORMATTING RULES:\n"
+                "1. Start with [cs] for Czech explanatory text\n"
+                "2. When you mention German words/phrases, wrap ONLY the German text with [de]\n"
+                "3. Continue with [cs] for more Czech explanation\n"
+                "4. NEVER put Czech text after [de] markers\n"
+                "5. NEVER use quotes around German text - use [de] markers instead\n\n"
+                "EXAMPLE - COPY THIS EXACT FORMAT:\n"
+                "[cs] Pro představení v němčině můžete říct: [de] Mein Name ist [cs] a pak své jméno, nebo [de] Ich heiße [cs] a své jméno.\n\n"
+                "ANOTHER EXAMPLE:\n"
+                "[cs] V němčině můžete říct [de] Guten Tag [cs] což znamená dobrý den.\n\n"
+                "WRONG FORMAT (NEVER DO THIS):\n"
+                "❌ [cs] Text [de] Czech text here (WRONG!)\n"
+                "❌ [cs] German text in quotes (WRONG!)\n\n"
+                "RIGHT FORMAT (ALWAYS DO THIS):\n"
+                "✅ [cs] Czech text [de] German text [cs] more Czech text\n\n"
+                "You are helping Czech speakers learn German, so speak mainly Czech with German embedded naturally."
             )
         elif response_language == "cs":
             system_content = (
@@ -1524,7 +1530,7 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
         }
 
 def fix_natural_language_mixing(user_input, response_text):
-    """🔥 NEW: Fix response to ensure natural mid-sentence language mixing"""
+    """🔥 STRONGER: Fix response to ensure proper natural mid-sentence language mixing"""
     
     response_language = st.session_state.response_language
     
@@ -1532,45 +1538,59 @@ def fix_natural_language_mixing(user_input, response_text):
     if response_language != "both":
         return response_text
     
-    # If response already has proper mixing, keep it
-    if "[cs]" in response_text and "[de]" in response_text:
-        # Check if it's natural mixing (German embedded in Czech) vs separate blocks
-        if response_text.count("[cs]") == 1 and response_text.count("[de]") >= 1:
-            # Good - Czech with embedded German
-            return response_text
-    
-    # 🎯 CRITICAL: Create natural language mixing response
-    # Analyze what the user asked for
+    # 🎯 CRITICAL: Force proper format for introduction questions
     if any(word in user_input.lower() for word in ["představit", "německy", "říct", "jmenuji"]):
-        # User asking about German introductions
-        return create_introduction_response(user_input)
-    elif any(word in user_input.lower() for word in ["dobrý den", "ahoj", "jak se máte"]):
-        # User greeting
-        return "[cs] Dobrý den! V němčině můžete říct [de] 'Guten Tag!' [cs] nebo [de] 'Hallo!' [cs] Jak se máte?"
-    elif any(word in user_input.lower() for word in ["děkuji", "danke"]):
-        # User saying thanks
-        return "[cs] Není zač! V němčině můžete říct [de] 'Gern geschehen!' [cs] nebo [de] 'Bitte schön!'"
-    else:
-        # General response - ensure Czech base with German embedded
-        return ensure_natural_mixing(response_text)
+        return create_proper_introduction_response(user_input)
+    
+    # 🎯 CRITICAL: Fix common formatting errors
+    response_text = fix_common_marker_errors(response_text)
+    
+    return response_text
 
-def create_introduction_response(user_input):
-    """Create natural introduction response for German learning"""
+def create_proper_introduction_response(user_input):
+    """Create EXACT proper introduction response"""
     
     # Extract name if present
-    name_match = re.search(r'jmenuji se (\w+)', user_input.lower())
+    name_match = re.search(r'jmenuji se (\w+[\s\w]*)', user_input.lower())
     if name_match:
-        name = name_match.group(1).title()
+        name = name_match.group(1).title().strip()
         return (
-            f"[cs] Dobrý den! Pro představení v němčině můžete říct: [de] 'Mein Name ist {name}' [cs] nebo [de] 'Ich heiße {name}.' "
-            f"[cs] Takto se představujete a říkáte své jméno. Pokud chcete být formálnější, můžete říct [de] 'Ich bin {name}.' "
-            f"[cs] Jak se máte? Potřebujete se naučit nějaká další německá slova?"
+            f"[cs] Dobrý den! Pro představení v němčině můžete říct: [de] Mein Name ist {name} [cs] nebo [de] Ich heiße {name} [cs] Takto se představujete a říkáte své jméno. "
+            f"[cs] Pokud chcete být formálnější, můžete říct [de] Ich bin {name} [cs] Jak se máte? Potřebujete se naučit nějaká další německá slova?"
         )
     else:
         return (
-            "[cs] Dobrý den! Pro představení v němčině můžete říct: [de] 'Mein Name ist...' [cs] a pak své jméno, nebo [de] 'Ich heiße...' "
-            "[cs] Takto se představujete. Pokud chcete být formálnější, můžete říct [de] 'Ich bin...' [cs] Jak se máte?"
+            "[cs] Dobrý den! Pro představení v němčině můžete říct: [de] Mein Name ist [cs] a pak své jméno, nebo [de] Ich heiße [cs] a své jméno. "
+            "[cs] Takto se představujete. Pokud chcete být formálnější, můžete říct [de] Ich bin [cs] a své jméno. Jak se máte?"
         )
+
+def fix_common_marker_errors(response_text):
+    """Fix common language marker errors"""
+    
+    # Remove quotes around German text and add proper markers
+    response_text = re.sub(r'"([^"]*(?:mein|ich|hallo|guten|das|ist|bin|heiße)[^"]*)"', r'[de] \1 [cs]', response_text, flags=re.IGNORECASE)
+    
+    # Fix Czech text incorrectly marked as German
+    czech_phrases = ["jak se máš", "můžu ti", "s něčím", "dalším", "pomoci", "ahoj", "toheede", "můžeš říci"]
+    for phrase in czech_phrases:
+        # If Czech phrase is after [de], move it to [cs]
+        pattern = rf'\[de\]([^[]*{re.escape(phrase)}[^[]*)'
+        match = re.search(pattern, response_text, re.IGNORECASE)
+        if match:
+            czech_part = match.group(1).strip()
+            response_text = re.sub(pattern, f'[cs] {czech_part}', response_text, flags=re.IGNORECASE)
+    
+    # Ensure proper spacing around markers
+    response_text = re.sub(r'\[cs\]\s*', '[cs] ', response_text)
+    response_text = re.sub(r'\[de\]\s*', '[de] ', response_text)
+    response_text = re.sub(r'\s+\[cs\]', ' [cs]', response_text)
+    response_text = re.sub(r'\s+\[de\]', ' [de]', response_text)
+    
+    # Remove duplicate markers
+    response_text = re.sub(r'\[cs\]\s*\[cs\]', '[cs]', response_text)
+    response_text = re.sub(r'\[de\]\s*\[de\]', '[de]', response_text)
+    
+    return response_text.strip()
 
 def ensure_natural_mixing(response_text):
     """Ensure response has natural Czech-German mixing"""
