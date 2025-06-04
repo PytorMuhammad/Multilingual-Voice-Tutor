@@ -54,12 +54,13 @@ ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1"
 OPENAI_API_URL = "https://api.openai.com/v1"
 
 
-# VOICE ISOLATION: Separate voices for each language to eliminate accent bleeding
 if 'language_voices' not in st.session_state:
+    # USE SAME VOICE FOR ALL LANGUAGES - No more "two speakers" effect
+    single_voice_id = "21m00Tcm4TlvDq8ikWAM"  # Use same voice for everything
     st.session_state.language_voices = {
-        "cs": "21m00Tcm4TlvDq8ikWAM",  # Rachel - good for Czech
-        "de": "EXAVITQu4vr4xnSDxMaL",  # Bella - good for German  
-        "default": "21m00Tcm4TlvDq8ikWAM"
+        "cs": single_voice_id,  # SAME voice for Czech
+        "de": single_voice_id,  # SAME voice for German
+        "default": single_voice_id
     }
 
 # OPTIMIZED voice settings for Flash v2.5 model
@@ -2153,13 +2154,9 @@ def generate_speech_with_language_voice(text, language_code, segment_position=0,
     if not api_key:
         return None, 0
     
-    # 🎯 CRITICAL: Use language-specific voice ID
-    if language_code == "cs":
-        voice_id = st.session_state.language_voices["cs"]
-    elif language_code == "de":
-        voice_id = st.session_state.language_voices["de"]
-    else:
-        voice_id = st.session_state.language_voices["default"]
+    # 🎯 FIXED: Use SAME voice ID for all languages
+    voice_id = st.session_state.elevenlabs_voice_id  # Same voice always!
+    logger.info(f"Using consistent voice {voice_id} for {language_code}")
     
     # Enhanced voice settings for seamless transitions
     voice_settings = get_transition_optimized_settings(language_code, segment_position, total_segments)
@@ -2399,6 +2396,15 @@ def optimize_german_pronunciation(text):
     
     return text
 
+def ensure_single_voice_consistency():
+    """Ensure all languages use the same voice ID"""
+    single_voice = st.session_state.elevenlabs_voice_id
+    st.session_state.language_voices["cs"] = single_voice
+    st.session_state.language_voices["de"] = single_voice
+    st.session_state.language_voices["default"] = single_voice
+    logger.info(f"Voice consistency enforced: {single_voice}")
+    
+    
 def add_pronunciation_markup(text, language_code):
     """Add SSML markup for better pronunciation"""
     
@@ -2573,12 +2579,9 @@ def generate_speech(text, language_code=None, voice_id=None):
         logger.error("ElevenLabs API key not provided")
         return None, 0
     
-    # VOICE ISOLATION: Select language-specific voice
-    if language_code and language_code in st.session_state.language_voices:
-        selected_voice_id = st.session_state.language_voices[language_code]
-        logger.info(f"Using {language_code} voice: {selected_voice_id}")
-    else:
-        selected_voice_id = voice_id or st.session_state.elevenlabs_voice_id
+    # SINGLE VOICE: Use same voice for all languages - no more "two speakers"
+    selected_voice_id = voice_id or st.session_state.elevenlabs_voice_id
+    logger.info(f"Using SAME voice for {language_code}: {selected_voice_id}")
     
     # Check cache first
     cache_key = f"{text}_{language_code}_{selected_voice_id}_flash_v2_5"
@@ -3247,59 +3250,42 @@ def main():
             st.session_state.elevenlabs_api_key = elevenlabs_key
             st.session_state.openai_api_key = openai_key
             st.session_state.api_keys_initialized = True
+            ensure_single_voice_consistency()
             st.success("API keys saved successfully!")
         
         # ACCENT-FREE VOICE CONFIGURATION
-        st.subheader("🎯 Accent-Free Voice Setup")
+        st.subheader("🎯 Single Voice Setup")
 
-        col1, col2 = st.columns(2)
+        st.write("**Consistent Voice for Both Languages:**")
+        if 'voices' in st.session_state and st.session_state.voices:
+            voice_options = {voice["name"]: voice["voice_id"] for voice in st.session_state.voices}
+            current_voice = None
+            for name, vid in voice_options.items():
+                if vid == st.session_state.elevenlabs_voice_id:
+                    current_voice = name
+                    break
+            
+            selected_voice_name = st.selectbox(
+                "Select Voice (Used for ALL languages)", 
+                options=list(voice_options.keys()),
+                index=list(voice_options.keys()).index(current_voice) if current_voice else 0,
+                key="single_voice_select"
+            )
+            
+            if selected_voice_name:
+                new_voice_id = voice_options[selected_voice_name]
+                st.session_state.elevenlabs_voice_id = new_voice_id
+                # Update all language voices to use the same voice
+                st.session_state.language_voices["cs"] = new_voice_id
+                st.session_state.language_voices["de"] = new_voice_id
+                st.session_state.language_voices["default"] = new_voice_id
 
-        with col1:
-            st.write("**Czech Voice:**")
-            if 'voices' in st.session_state and st.session_state.voices:
-                czech_voice_options = {voice["name"]: voice["voice_id"] for voice in st.session_state.voices}
-                current_czech = None
-                for name, vid in czech_voice_options.items():
-                    if vid == st.session_state.language_voices["cs"]:
-                        current_czech = name
-                        break
-                
-                czech_voice_name = st.selectbox(
-                    "Czech Voice", 
-                    options=list(czech_voice_options.keys()),
-                    index=list(czech_voice_options.keys()).index(current_czech) if current_czech else 0,
-                    key="czech_voice_select"
-                )
-                
-                if czech_voice_name:
-                    st.session_state.language_voices["cs"] = czech_voice_options[czech_voice_name]
-
-        with col2:
-            st.write("**German Voice:**")
-            if 'voices' in st.session_state and st.session_state.voices:
-                german_voice_options = {voice["name"]: voice["voice_id"] for voice in st.session_state.voices}
-                current_german = None
-                for name, vid in german_voice_options.items():
-                    if vid == st.session_state.language_voices["de"]:
-                        current_german = name
-                        break
-                
-                german_voice_name = st.selectbox(
-                    "German Voice", 
-                    options=list(german_voice_options.keys()),
-                    index=list(german_voice_options.keys()).index(current_german) if current_german else 0,
-                    key="german_voice_select"
-                )
-                
-                if german_voice_name:
-                    st.session_state.language_voices["de"] = german_voice_options[german_voice_name]
-
-        # Voice isolation status
+        # Voice consistency status
         st.success(f"""
-        ✅ **Accent-Free Configuration Active**
-        - Czech Voice: {st.session_state.language_voices['cs'][:8]}...
-        - German Voice: {st.session_state.language_voices['de'][:8]}...
-        - Model: Flash v2.5 (Ultra-low latency + accent-free)
+        ✅ **Single Voice Configuration**
+        - Voice ID: {st.session_state.elevenlabs_voice_id[:8]}...
+        - Used for: ALL languages (Czech + German)
+        - Model: Flash v2.5 (Multilingual accent-free)
         """)
         
         # NEW: Language Response Options
@@ -3544,6 +3530,7 @@ def main():
 
                         **⚡ Total time: Record → Download → Upload → Get Results!**
                         """)
+    
     with col2:
         st.header("Output")
         
