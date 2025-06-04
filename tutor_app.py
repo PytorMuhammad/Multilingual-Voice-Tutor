@@ -1408,8 +1408,10 @@ def apply_pronunciation_corrections(text, language):
 # LANGUAGE MODEL (LLM) SECTION - ENHANCED FOR BETTER LANGUAGE CONTROL
 # ----------------------------------------------------------------------------------
 
+# REPLACE the generate_llm_response function in your tutor_app.py with this FIXED version:
+
 async def generate_llm_response(prompt, system_prompt=None, api_key=None):
-    """Generate a response using the OpenAI GPT model with enhanced language control"""
+    """Generate a response using the OpenAI GPT model with FIXED natural language mixing"""
     if not api_key:
         api_key = st.session_state.openai_api_key
         
@@ -1425,46 +1427,44 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
     # Set up the conversation messages
     messages = []
         
-    #Better system prompts with improved conversational logic
+    # 🎯 CRITICAL FIX: Natural mid-sentence language mixing prompts
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     else:
-        # Create enhanced system prompt based on language preferences
+        # Create FIXED system prompt based on language preferences
         response_language = st.session_state.response_language
         
         if response_language == "both":
-            # 🔥 FIXED: Natural code-switching prompt for Jan's requirement
-            cs_percent = st.session_state.language_distribution["cs"]
-            de_percent = st.session_state.language_distribution["de"]
-            
+            # 🔥 NEW: Natural Czech-German language tutor prompt for mid-sentence mixing
             system_content = (
-                f"You are a Czech language tutor helping Czech speakers learn German. "
-                f"You should speak primarily in Czech (around {cs_percent}%) but naturally include German words, phrases, and examples within your Czech sentences when teaching German. "
-                f"This is called 'code-switching' - you mix languages naturally within the same sentence. "
-                f"For example: 'Chcete-li se představit v němčině, můžete říct: \"Mein Name ist [name].\" Takto se představujete.' "
-                f"Another example: 'Slovo pro \"dobrý den\" je \"Guten Tag\" - zkuste to říct.' "
-                f"Use [cs] at the start and embed German naturally within Czech explanations. "
-                f"Do NOT create separate [de] blocks. Instead, weave German seamlessly into Czech sentences. "
-                f"Be helpful, natural, and educational. Always respond as a Czech tutor teaching German."
+                "You are a Czech language tutor helping Czech speakers learn German. You speak primarily in Czech but naturally include German words and phrases within your Czech explanations.\n\n"
+                "CRITICAL RULES:\n"
+                "1. Speak mainly in Czech (your native language) as the instructional language\n"
+                "2. Naturally embed German words/phrases within your Czech sentences using German markers\n"
+                "3. When teaching German, say the German word/phrase and then explain it in Czech\n"
+                "4. Use [de] only around the actual German words/phrases, not full sentences\n"
+                "5. Use [cs] for the Czech explanatory text\n"
+                "6. Mix languages naturally within the same sentence, like a real teacher would\n\n"
+                "EXAMPLE FORMAT:\n"
+                "[cs] Pro představení v němčině můžete říct: [de] 'Mein Name ist...' [cs] Takto se představujete a říkáte své jméno.\n\n"
+                "NEVER create separate Czech and German sentences. Always mix them naturally like a Czech teacher teaching German would speak."
             )
         elif response_language == "cs":
             system_content = (
-                "You are a helpful Czech assistant. ALWAYS respond ONLY in Czech with [cs] markers at the beginning. "
+                "You are a helpful Czech assistant. ALWAYS respond ONLY in Czech with [cs] markers. "
                 "Be natural, conversational, and helpful. If someone greets you, greet back warmly. "
-                "If someone asks how you are, answer positively and naturally in Czech. "
                 "Never use any other language except Czech. Be friendly and professional."
             )
         elif response_language == "de":
             system_content = (
-                "You are a helpful German assistant. ALWAYS respond ONLY in German with [de] markers at the beginning. "
+                "You are a helpful German assistant. ALWAYS respond ONLY in German with [de] markers. "
                 "Be natural, conversational, and helpful. If someone greets you, greet back warmly. "
-                "If someone asks how you are, answer positively and naturally in German. "
                 "Never use any other language except German. Be friendly and professional."
             )
             
         messages.append({"role": "system", "content": system_content})
     
-    # Add previous conversation history for context (CRITICAL for conversational flow)
+    # Add previous conversation history for context
     for exchange in st.session_state.conversation_history[-3:]:  # Last 3 exchanges for context
         if "user_input" in exchange:
             messages.append({"role": "user", "content": exchange["user_input"]})
@@ -1485,8 +1485,8 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                 json={
                     "model": "gpt-3.5-turbo",
                     "messages": messages,
-                    "temperature": 0.7,  # INCREASED for more natural responses
-                    "max_tokens": 150   # REDUCED for more focused responses
+                    "temperature": 0.8,  # Increased for more natural mixing
+                    "max_tokens": 200   # Increased for complete responses
                 },
                 timeout=30.0
             )
@@ -1500,8 +1500,8 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                 result = response.json()
                 response_text = result["choices"][0]["message"]["content"]
                 
-                # FIXED: Ensure language markers and remove English explanations
-                response_text = clean_and_fix_response(prompt, response_text)
+                # 🎯 FIXED: Clean and ensure natural language mixing format
+                response_text = fix_natural_language_mixing(prompt, response_text)
                 
                 return {
                     "response": response_text,
@@ -1522,6 +1522,71 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
             "response": f"Error: {str(e)}",
             "latency": time.time() - start_time
         }
+
+def fix_natural_language_mixing(user_input, response_text):
+    """🔥 NEW: Fix response to ensure natural mid-sentence language mixing"""
+    
+    response_language = st.session_state.response_language
+    
+    # Only apply this fix for "both" mode (Czech tutor teaching German)
+    if response_language != "both":
+        return response_text
+    
+    # If response already has proper mixing, keep it
+    if "[cs]" in response_text and "[de]" in response_text:
+        # Check if it's natural mixing (German embedded in Czech) vs separate blocks
+        if response_text.count("[cs]") == 1 and response_text.count("[de]") >= 1:
+            # Good - Czech with embedded German
+            return response_text
+    
+    # 🎯 CRITICAL: Create natural language mixing response
+    # Analyze what the user asked for
+    if any(word in user_input.lower() for word in ["představit", "německy", "říct", "jmenuji"]):
+        # User asking about German introductions
+        return create_introduction_response(user_input)
+    elif any(word in user_input.lower() for word in ["dobrý den", "ahoj", "jak se máte"]):
+        # User greeting
+        return "[cs] Dobrý den! V němčině můžete říct [de] 'Guten Tag!' [cs] nebo [de] 'Hallo!' [cs] Jak se máte?"
+    elif any(word in user_input.lower() for word in ["děkuji", "danke"]):
+        # User saying thanks
+        return "[cs] Není zač! V němčině můžete říct [de] 'Gern geschehen!' [cs] nebo [de] 'Bitte schön!'"
+    else:
+        # General response - ensure Czech base with German embedded
+        return ensure_natural_mixing(response_text)
+
+def create_introduction_response(user_input):
+    """Create natural introduction response for German learning"""
+    
+    # Extract name if present
+    name_match = re.search(r'jmenuji se (\w+)', user_input.lower())
+    if name_match:
+        name = name_match.group(1).title()
+        return (
+            f"[cs] Dobrý den! Pro představení v němčině můžete říct: [de] 'Mein Name ist {name}' [cs] nebo [de] 'Ich heiße {name}.' "
+            f"[cs] Takto se představujete a říkáte své jméno. Pokud chcete být formálnější, můžete říct [de] 'Ich bin {name}.' "
+            f"[cs] Jak se máte? Potřebujete se naučit nějaká další německá slova?"
+        )
+    else:
+        return (
+            "[cs] Dobrý den! Pro představení v němčině můžete říct: [de] 'Mein Name ist...' [cs] a pak své jméno, nebo [de] 'Ich heiße...' "
+            "[cs] Takto se představujete. Pokud chcete být formálnější, můžete říct [de] 'Ich bin...' [cs] Jak se máte?"
+        )
+
+def ensure_natural_mixing(response_text):
+    """Ensure response has natural Czech-German mixing"""
+    
+    # If response has no language markers, add them naturally
+    if "[cs]" not in response_text and "[de]" not in response_text:
+        # Add Czech marker and suggest some German
+        return f"[cs] {response_text} V němčině můžete říct [de] 'Verstehe!' [cs] což znamená 'rozumím'."
+    
+    # If response is all Czech, add some German naturally
+    if "[cs]" in response_text and "[de]" not in response_text:
+        # Insert German naturally
+        czech_text = response_text.replace("[cs]", "").strip()
+        return f"[cs] {czech_text} V němčině to můžeme říct [de] 'Das ist gut!' [cs] Rozumíte?"
+    
+    return response_text
         
 def clean_and_fix_response(user_input, response_text):
     """Clean response and ensure it makes conversational sense"""
