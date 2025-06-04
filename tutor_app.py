@@ -546,7 +546,11 @@ def check_and_process_auto_audio():
 
 def get_recorded_audio_data():
     """Get audio data from the HTML component"""
+    # This will be called after the component processes audio
+    # In practice, we'll handle this through session state
     pass
+# Add these enhanced audio capture functions after the import statements
+# Replace the existing capture_enhanced_audio function with this simplified version
 def capture_enhanced_audio():
     """Simplified audio capture that works with the frame-based system"""
     try:
@@ -1486,7 +1490,39 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
 
         For grammar errors: "[cs] Téměř správně! Místo [de] 'ich haben' [cs] řekněte [de] 'ich habe' [cs] - první osoba je vždy 'habe'. Zkuste: [de] Ich habe einen Hund [cs] (mám psa)."
 
-        You're guiding PAID customers through structured German learning. Every response must add value to their investment and move them toward conversational fluency. Be systematic, encouraging, and results-focused."""
+        You're guiding PAID customers through structured German learning. Every response must add value to their investment and move them toward conversational fluency. Be systematic, encouraging, and results-focused.
+        NEVER DO THIS (wrong):
+        ❌ "[cs] Jsem učitel [de] Ich bin Lehrer" (same content translated)
+
+        ALWAYS DO THIS (correct):
+        ✅ "[cs] Jsem váš učitel němčiny. Naučíme se říct [de] Guten Morgen [cs] což znamená 'dobré ráno'"
+        
+        CRITICAL RULES:
+        1. You are a GERMAN TEACHER, not a translator
+        2. Use Czech [cs] ONLY for: explanations, instructions, questions to student & User may Use German as Input okah 
+        3. Use German [de] ONLY for: vocabulary, examples, phrases to practice & others 
+        4. NEVER repeat the same content in both languages
+        5. NEVER translate - each language has a different PURPOSE
+
+        LANGUAGE PURPOSES:
+        - Czech [cs] = Your teaching language (explain, instruct, encourage)  
+        - German [de] = Target language (vocabulary, examples, practice phrases)
+
+        INTRODUCTION EXAMPLE:
+        When asked to introduce yourself, respond like this:
+        "[cs] Dobrý den! Jsem váš učitel němčiny. Pomohu vám naučit se základní německá slova a fráze. Začneme jednoduše - [de] Guten Tag [cs] znamená 'dobrý den'. Zkusíte to říct?"
+
+        VOCABULARY EXAMPLE:
+        "[cs] Slovo 'voda' v němčině je [de] das Wasser [cs] - rod střední. Zkuste větu: [de] Ich trinke Wasser [cs] Rozumíte?"
+
+        NEVER DO THIS (wrong):
+        ❌ "[cs] Jsem učitel [de] Ich bin Lehrer" (same content translated)
+
+        ALWAYS DO THIS (correct):
+        ✅ "[cs] Jsem váš učitel němčiny. Naučíme se říct [de] Guten Morgen [cs] což znamená 'dobré ráno'"
+
+        Stay in character as a Czech-speaking German teacher. Each language serves a different pedagogical purpose.
+"""
 
         elif response_language == "cs":
             system_content = (
@@ -3247,16 +3283,6 @@ def main():
     st.title("Multilingual AI Voice Tutor")
     st.subheader("Professional German Language Tutor for Czech Speakers (A1-A2)")
     
-    # Detect mobile and adjust UI
-    if st.sidebar.button("📱 Mobile Mode"):
-        st.session_state.mobile_mode = True
-
-    if st.session_state.get('mobile_mode'):
-        # Single column layout for mobile
-        col1, col2 = [st.container(), st.container()] 
-    else:
-        col1, col2 = st.columns([2, 3])
-    
     # Status area for progress updates
     if 'status_area' not in st.session_state:
         st.session_state.status_area = st.empty()
@@ -3325,22 +3351,22 @@ def main():
         """)
         
         # NEW: Language Response Options
-        st.subheader("Response Language")
+        st.subheader("Tutor Mode")
  
-        # Choose response language
+        # Choose Tutor Mode
 
         response_language = st.radio(
-            "Response Language",
+            "Tutor Mode",
             options=["both", "cs", "de"],
             format_func=lambda x: {
-                "both": "Both Languages", 
+                "both": "German Tutor (Czech + German)", 
                 "cs": "Czech Only", 
                 "de": "German Only"
             }[x]
         )
         if response_language != st.session_state.response_language:
             st.session_state.response_language = response_language
-            st.success(f"Response language set to: {response_language}")
+            st.success(f"Tutor Mode set to: {response_language}")
         
         # Language distribution (only shown when "both" is selected)
         if response_language == "both":
