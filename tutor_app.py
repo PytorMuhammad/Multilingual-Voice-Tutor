@@ -1412,7 +1412,7 @@ def apply_pronunciation_corrections(text, language):
 # REPLACE the generate_llm_response function in your tutor_app.py with this FIXED version:
 
 async def generate_llm_response(prompt, system_prompt=None, api_key=None):
-    """Generate a response using the OpenAI GPT model with FIXED natural language mixing"""
+    """Generate a response using the OpenAI GPT model with PROFESSIONAL German tutoring"""
     if not api_key:
         api_key = st.session_state.openai_api_key
         
@@ -1428,51 +1428,85 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
     # Set up the conversation messages
     messages = []
         
-    # 🎯 CRITICAL FIX: Natural mid-sentence language mixing prompts
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
     else:
-        # Create FIXED system prompt based on language preferences
+        # 🎯 PROFESSIONAL GERMAN TUTOR SYSTEM PROMPT
         response_language = st.session_state.response_language
         
         if response_language == "both":
-            # 🔥 STRONGER: More explicit natural Czech-German language tutor prompt
-            system_content = (
-                "You are a Czech language tutor helping Czech speakers learn German. Follow these EXACT rules:\n\n"
-                "CRITICAL FORMATTING RULES:\n"
-                "1. Start with [cs] for Czech explanatory text\n"
-                "2. When you mention German words/phrases, wrap ONLY the German text with [de]\n"
-                "3. Continue with [cs] for more Czech explanation\n"
-                "4. NEVER put Czech text after [de] markers\n"
-                "5. NEVER use quotes around German text - use [de] markers instead\n\n"
-                "EXAMPLE - COPY THIS EXACT FORMAT:\n"
-                "[cs] Pro představení v němčině můžete říct: [de] Mein Name ist [cs] a pak své jméno, nebo [de] Ich heiße [cs] a své jméno.\n\n"
-                "ANOTHER EXAMPLE:\n"
-                "[cs] V němčině můžete říct [de] Guten Tag [cs] což znamená dobrý den.\n\n"
-                "WRONG FORMAT (NEVER DO THIS):\n"
-                "❌ [cs] Text [de] Czech text here (WRONG!)\n"
-                "❌ [cs] German text in quotes (WRONG!)\n\n"
-                "RIGHT FORMAT (ALWAYS DO THIS):\n"
-                "✅ [cs] Czech text [de] German text [cs] more Czech text\n\n"
-                "You are helping Czech speakers learn German, so speak mainly Czech with German embedded naturally."
-            )
+            system_content = """You are "GermanMeister" - a premium AI German language tutor designed for Czech speakers who paid for professional German learning. You represent a commercial language learning platform competing with Duolingo, Babbel, and other top services.
+
+        CORE IDENTITY:
+        You are a certified German language instructor with 15+ years of experience teaching Czech speakers. You hold a Master's degree in Germanic linguistics and are perfectly bilingual in Czech and German. Your teaching style is engaging, systematic, and results-oriented.
+
+        CURRICULUM STRUCTURE (A1-A2 LEVELS):
+        A1 Level: Basic greetings, present tense (sein, haben), articles (der/die/das), family/food/time vocabulary, basic word order, question formation
+        A2 Level: Past/future tenses, modal verbs, adjective declination, dative/accusative cases, prepositions, separable verbs, travel/work vocabulary
+
+        PEDAGOGICAL APPROACH:
+        1. Use Czech [cs] for explanations, German [de] for examples and practice
+        2. Break complex concepts into micro-lessons
+        3. Always provide immediate practice opportunities
+        4. Use real-life scenarios (restaurant, hotel, work)
+        5. Correct errors gently with clear explanations
+        6. Reference previous learning and show progress
+        7. Include German culture and regional differences
+
+        VOCABULARY LESSON FORMAT:
+        "[cs] Explanation [de] German term [cs] detailed explanation [de] example sentence [cs] practice suggestion"
+        - Include: German word + article, Czech translation, pronunciation tip, example sentence, related words
+
+        GRAMMAR EXPLANATIONS:
+        - Start with Czech explanation of concept
+        - Show German examples with highlighting  
+        - Explain pattern/rule clearly
+        - Provide 3-4 practice examples
+        - Connect to previously learned material
+
+        CONVERSATION PRACTICE:
+        - Set realistic scenarios (ordering food, directions)
+        - Provide German phrases with Czech explanations
+        - Encourage role-play responses
+        - Correct errors with explanations
+        - Build confidence progressively
+
+        ERROR CORRECTION PROTOCOL:
+        1. Acknowledge attempt positively
+        2. Identify specific error type
+        3. Explain correct form with reasoning
+        4. Provide corrected version
+        5. Give additional practice opportunity
+
+        QUALITY STANDARDS:
+        - Use proper [cs] and [de] markers always
+        - Keep responses 2-4 sentences for engagement
+        - Include at least one practice element per response
+        - Maintain encouraging, professional tone
+        - Provide actionable next steps
+
+        SAMPLE RESPONSE STYLE:
+        For vocabulary: "[cs] Perfektní otázka! 'Voda' je [de] das Wasser [cs] - rod střední. Dalších pár: [de] das Brot [cs] (chléb), [de] die Milch [cs] (mléko). Zkuste: [de] Ich trinke Wasser [cs] (piju vodu). Jaké jídlo máte nejraději?"
+
+        For grammar errors: "[cs] Téměř správně! Místo [de] 'ich haben' [cs] řekněte [de] 'ich habe' [cs] - první osoba je vždy 'habe'. Zkuste: [de] Ich habe einen Hund [cs] (mám psa)."
+
+        You're guiding PAID customers through structured German learning. Every response must add value to their investment and move them toward conversational fluency. Be systematic, encouraging, and results-focused."""
+
         elif response_language == "cs":
             system_content = (
                 "You are a helpful Czech assistant. ALWAYS respond ONLY in Czech with [cs] markers. "
-                "Be natural, conversational, and helpful. If someone greets you, greet back warmly. "
-                "Never use any other language except Czech. Be friendly and professional."
+                "Be natural, conversational, and helpful."
             )
         elif response_language == "de":
             system_content = (
                 "You are a helpful German assistant. ALWAYS respond ONLY in German with [de] markers. "
-                "Be natural, conversational, and helpful. If someone greets you, greet back warmly. "
-                "Never use any other language except German. Be friendly and professional."
+                "Be natural, conversational, and helpful."
             )
             
         messages.append({"role": "system", "content": system_content})
     
-    # Add previous conversation history for context
-    for exchange in st.session_state.conversation_history[-3:]:  # Last 3 exchanges for context
+    # Add previous conversation history for context (reduced for focus)
+    for exchange in st.session_state.conversation_history[-2:]:  # Last 2 for context
         if "user_input" in exchange:
             messages.append({"role": "user", "content": exchange["user_input"]})
         if "assistant_response" in exchange:
@@ -1490,10 +1524,10 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "gpt-3.5-turbo",
+                    "model": "gpt-4",  # Better for complex tutoring
                     "messages": messages,
-                    "temperature": 0.8,  # Increased for more natural mixing
-                    "max_tokens": 200   # Increased for complete responses
+                    "temperature": 0.7,  # Balanced for tutoring
+                    "max_tokens": 400   # Adequate for tutoring responses
                 },
                 timeout=30.0
             )
@@ -1507,8 +1541,8 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
                 result = response.json()
                 response_text = result["choices"][0]["message"]["content"]
                 
-                # 🎯 FIXED: Clean and ensure natural language mixing format
-                response_text = fix_natural_language_mixing(prompt, response_text)
+                # 🎯 MINIMAL processing - let professional tutor respond naturally
+                response_text = ensure_proper_language_markers(response_text)
                 
                 return {
                     "response": response_text,
@@ -1530,23 +1564,20 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
             "latency": time.time() - start_time
         }
 
-def fix_natural_language_mixing(user_input, response_text):
-    """🔥 STRONGER: Fix response to ensure proper natural mid-sentence language mixing"""
+def ensure_proper_language_markers(response_text):
+    """Ensure response has proper language markers - minimal processing"""
     
-    response_language = st.session_state.response_language
+    # If already has markers, just clean them up
+    if "[cs]" in response_text or "[de]" in response_text:
+        # Clean up spacing around markers
+        response_text = re.sub(r'\[cs\]\s*', '[cs] ', response_text)
+        response_text = re.sub(r'\[de\]\s*', '[de] ', response_text)
+        response_text = re.sub(r'\s+\[cs\]', ' [cs]', response_text)
+        response_text = re.sub(r'\s+\[de\]', ' [de]', response_text)
+        return response_text.strip()
     
-    # Only apply this fix for "both" mode (Czech tutor teaching German)
-    if response_language != "both":
-        return response_text
-    
-    # 🎯 CRITICAL: Force proper format for introduction questions
-    if any(word in user_input.lower() for word in ["představit", "německy", "říct", "jmenuji"]):
-        return create_proper_introduction_response(user_input)
-    
-    # 🎯 CRITICAL: Fix common formatting errors
-    response_text = fix_common_marker_errors(response_text)
-    
-    return response_text
+    # If no markers, add Czech marker (default instructional language)
+    return f"[cs] {response_text.strip()}"
 
 def create_proper_introduction_response(user_input):
     """Create EXACT proper introduction response"""
@@ -3217,9 +3248,8 @@ def main():
         layout="wide"
     )
     
-    # Application title
     st.title("Multilingual AI Voice Tutor")
-    st.subheader("Proof-of-Concept for Czech ↔ German Language Switching")
+    st.subheader("Professional German Language Tutor for Czech Speakers (A1-A2)")
     
     # Status area for progress updates
     if 'status_area' not in st.session_state:
@@ -3412,19 +3442,20 @@ def main():
             
             # Demo preset examples
             demo_scenarios = {
-                "Basic Greetings": (
-                    "[de] Guten Tag! Wie geht es Ihnen heute? [cs] Dobrý den! Jak se dnes máte?"
+                "Vocabulary Request": (
+                    "Můžete mi říct, co říkáme voda a nějaká další základní slova v němčině?"
                 ),
-                "Language Learning Conversation": (
-                    "[de] Ich lerne jetzt Deutsch und Tschechisch. Es ist manchmal schwierig, aber ich mache Fortschritte. "
-                    "[cs] Učím se německy a česky. Někdy je to těžké, ale dělám pokroky."
+                "Grammar Question": (
+                    "Jak se tvoří minulý čas v němčině? Můžete mi ukázat nějaké příklady?"
                 ),
-                "Travel Planning": (
-                    "[cs] Rád bych navštívil Prahu a potom Berlín. [de] Können Sie mir Sehenswürdigkeiten in beiden Städten empfehlen?"
+                "Practice Conversation": (
+                    "Chtěl bych si procvičit představování v němčině. Jak bych se měl představit?"
                 ),
-                "Business Meeting": (
-                    "[de] Willkommen zu unserem Meeting. Heute besprechen wir das neue Projekt. "
-                    "[cs] Máme několik bodů k projednání. Začněme s rozpočtem."
+                "Pronunciation Help": (
+                    "Mám problém s výslovností německého \"ü\". Můžete mi pomoci?"
+                ),
+                "Daily Expressions": (
+                    "Naučte mě základní fráze pro každodenní konverzaci v němčině."
                 ),
                 "Custom Input": ""
             }
