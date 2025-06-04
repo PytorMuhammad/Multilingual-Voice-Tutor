@@ -546,11 +546,7 @@ def check_and_process_auto_audio():
 
 def get_recorded_audio_data():
     """Get audio data from the HTML component"""
-    # This will be called after the component processes audio
-    # In practice, we'll handle this through session state
     pass
-# Add these enhanced audio capture functions after the import statements
-# Replace the existing capture_enhanced_audio function with this simplified version
 def capture_enhanced_audio():
     """Simplified audio capture that works with the frame-based system"""
     try:
@@ -3250,6 +3246,16 @@ def main():
     
     st.title("Multilingual AI Voice Tutor")
     st.subheader("Professional German Language Tutor for Czech Speakers (A1-A2)")
+    
+    # Detect mobile and adjust UI
+    if st.sidebar.button("📱 Mobile Mode"):
+        st.session_state.mobile_mode = True
+
+    if st.session_state.get('mobile_mode'):
+        # Single column layout for mobile
+        col1, col2 = [st.container(), st.container()] 
+    else:
+        col1, col2 = st.columns([2, 3])
     
     # Status area for progress updates
     if 'status_area' not in st.session_state:
