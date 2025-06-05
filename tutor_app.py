@@ -51,6 +51,251 @@ import soundfile as sf
 import librosa
 import whisper
 
+# Add to your imports
+import io
+from openai import OpenAI
+
+# OpenAI TTS Configuration
+if 'openai_tts_voice' not in st.session_state:
+    st.session_state.openai_tts_voice = "alloy"  # Options: alloy, echo, fable, onyx, nova, shimmer
+
+async def generate_openai_speech(text, language_code=None, voice=None):
+    """Generate speech using OpenAI TTS API"""
+    if not text or text.strip() == "":
+        return None, 0
+    
+    client = OpenAI(api_key=st.session_state.openai_api_key)
+    
+    start_time = time.time()
+    
+    try:
+        # Choose voice based on language if needed
+        selected_voice = voice or st.session_state.openai_tts_voice
+        
+        # Language-specific voice selection for better accent control
+        if language_code == "ur":
+            selected_voice = "nova"  # Better for Urdu pronunciation
+        elif language_code == "en":
+            selected_voice = "alloy"  # Better for English pronunciation
+        
+        response = client.audio.speech.create(
+            model="tts-1-hd",  # High quality model
+            voice=selected_voice,
+            input=text,
+            response_format="mp3",
+            speed=1.0
+        )
+        
+        generation_time = time.time() - start_time
+        
+        # Save to BytesIO
+        audio_io = BytesIO()
+        audio_io.write(response.content)
+        audio_io.seek(0)
+        
+        logger.info(f"✅ OpenAI TTS generated in {generation_time:.2f}s")
+        return audio_io, generation_time
+        
+    except Exception as e:
+        logger.error(f"OpenAI TTS error: {str(e)}")
+        return None, time.time() - start_time
+
+def process_openai_multilingual_text(text):
+    """Process multilingual text with OpenAI TTS"""
+    segments = parse_language_segments_enhanced(text)
+    
+    if len(segments) <= 1:
+        # Single language
+        audio_data, gen_time = asyncio.run(generate_openai_speech(text, segments[0]["language"] if segments else "ur"))
+        if audio_data:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+                with open(temp_file.name, "wb") as f:
+                    f.write(audio_data.read())
+                return temp_file.name, gen_time
+        return None, 0
+    
+    # Multiple segments
+    audio_segments = []
+    total_time = 0
+    
+    for segment in segments:
+        if not segment["text"].strip():
+            continue
+            
+        audio_data, generation_time = asyncio.run(generate_openai_speech(
+            segment["text"], 
+            language_code=segment["language"]
+        ))
+        
+        if audio_data:
+            audio_segment = AudioSegment.from_file(audio_data, format="mp3")
+            normalized_segment = normalize_audio_volume(audio_segment, target_dbfs=-18)
+            audio_segments.append(normalized_segment)
+            total_time += generation_time
+    
+    if not audio_segments:
+        return None, 0
+    
+    # Combine segments
+    combined_audio = audio_segments[0]
+    for i in range(1, len(audio_segments)):
+        combined_audio = combined_audio.append(audio_segments[i], crossfade=50)
+    
+    # Save final audio
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+        combined_audio.export(temp_file.name, format="mp3", bitrate="192k")
+        return temp_file.name, total_time
+    
+# Add to your imports
+import azure.cognitiveservices.speech as speechsdk
+
+# Azure Speech Configuration
+if 'azure_speech_key' not in st.session_state:
+    st.session_state.azure_speech_key = os.environ.get("AZURE_SPEECH_KEY", "")
+    st.session_state.azure_speech_region = os.environ.get("AZURE_SPEECH_REGION", "eastus")
+
+# Azure voice mapping for better accent control
+AZURE_VOICES = {
+    "ur": "ur-PK-AsadNeural",  # Pakistani Urdu male voice
+    "en": "en-US-JennyNeural"  # US English female voice
+}
+
+async def generate_azure_speech(text, language_code=None, voice=None):
+    """Generate speech using Azure Cognitive Services"""
+    if not text or text.strip() == "":
+        return None, 0
+    
+    if not st.session_state.azure_speech_key:
+        logger.error("Azure Speech key not provided")
+        return None, 0
+    
+    start_time = time.time()
+    
+    try:
+        # Configure Azure Speech
+        speech_config = speechsdk.SpeechConfig(
+            subscription=st.session_state.azure_speech_key,
+            region=st.session_state.azure_speech_region
+        )
+        
+        # Select voice based on language for accent-free output
+        if language_code and language_code in AZURE_VOICES:
+            speech_config.speech_synthesis_voice_name = AZURE_VOICES[language_code]
+        elif voice:
+            speech_config.speech_synthesis_voice_name = voice
+        else:
+            speech_config.speech_synthesis_voice_name = AZURE_VOICES["en"]  # Default
+        
+        # Configure audio output
+        speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Audio48Khz192KBitRateMonoMp3
+        )
+        
+        # Create synthesizer
+        synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
+        
+        # Enhanced SSML for better pronunciation control
+        ssml_text = create_azure_ssml(text, language_code)
+        
+        # Synthesize speech
+        result = synthesizer.speak_ssml_async(ssml_text).get()
+        
+        generation_time = time.time() - start_time
+        
+        if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            # Convert to BytesIO
+            audio_io = BytesIO()
+            audio_io.write(result.audio_data)
+            audio_io.seek(0)
+            
+            logger.info(f"✅ Azure Speech generated in {generation_time:.2f}s")
+            return audio_io, generation_time
+        else:
+            logger.error(f"Azure Speech error: {result.reason}")
+            return None, generation_time
+            
+    except Exception as e:
+        logger.error(f"Azure Speech error: {str(e)}")
+        return None, time.time() - start_time
+
+def create_azure_ssml(text, language_code):
+    """Create Azure-specific SSML for better pronunciation"""
+    if not language_code:
+        language_code = "en"
+    
+    # Language-specific SSML settings
+    if language_code == "ur":
+        voice_name = AZURE_VOICES["ur"]
+        lang_code = "ur-PK"
+        rate = "0.9"  # Slightly slower for Urdu clarity
+    elif language_code == "en":
+        voice_name = AZURE_VOICES["en"]
+        lang_code = "en-US"
+        rate = "1.0"  # Normal speed for English
+    else:
+        voice_name = AZURE_VOICES["en"]
+        lang_code = "en-US"
+        rate = "1.0"
+    
+    ssml = f"""
+    <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{lang_code}">
+        <voice name="{voice_name}">
+            <prosody rate="{rate}" pitch="+0%">
+                {text}
+            </prosody>
+        </voice>
+    </speak>
+    """
+    
+    return ssml
+
+def process_azure_multilingual_text(text):
+    """Process multilingual text with Azure Speech"""
+    segments = parse_language_segments_enhanced(text)
+    
+    if len(segments) <= 1:
+        # Single language
+        audio_data, gen_time = asyncio.run(generate_azure_speech(text, segments[0]["language"] if segments else "ur"))
+        if audio_data:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+                with open(temp_file.name, "wb") as f:
+                    f.write(audio_data.read())
+                return temp_file.name, gen_time
+        return None, 0
+    
+    # Multiple segments with accent-free processing
+    audio_segments = []
+    total_time = 0
+    
+    for segment in segments:
+        if not segment["text"].strip():
+            continue
+            
+        audio_data, generation_time = asyncio.run(generate_azure_speech(
+            segment["text"], 
+            language_code=segment["language"]
+        ))
+        
+        if audio_data:
+            audio_segment = AudioSegment.from_file(audio_data, format="mp3")
+            normalized_segment = normalize_audio_volume(audio_segment, target_dbfs=-18)
+            audio_segments.append(normalized_segment)
+            total_time += generation_time
+    
+    if not audio_segments:
+        return None, 0
+    
+    # Seamless blending
+    combined_audio = audio_segments[0]
+    for i in range(1, len(audio_segments)):
+        combined_audio = combined_audio.append(audio_segments[i], crossfade=75)
+    
+    # Save final audio
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as temp_file:
+        combined_audio.export(temp_file.name, format="mp3", bitrate="192k")
+        return temp_file.name, total_time
+    
+    
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("multilingual_voice_tutor")
@@ -120,6 +365,18 @@ if 'language_distribution' not in st.session_state:
 # Language preference for response
 if 'response_language' not in st.session_state:
     st.session_state.response_language = "both"  # 🔥 CHANGED: Options: "ur", "en", "both"
+    
+# 🔊 ADD TTS PROVIDER SELECTION TO SESSION STATE HERE
+if 'tts_provider' not in st.session_state:
+    st.session_state.tts_provider = "elevenlabs"  # Options: "elevenlabs", "openai", "azure"
+
+if 'azure_speech_key' not in st.session_state:
+    st.session_state.azure_speech_key = os.environ.get("AZURE_SPEECH_KEY", "")
+    st.session_state.azure_speech_region = os.environ.get("AZURE_SPEECH_REGION", "eastus")
+
+if 'openai_tts_voice' not in st.session_state:
+    st.session_state.openai_tts_voice = "alloy"
+    
 
 # 🔥 UPDATED: Language codes and settings for Urdu/English
 SUPPORTED_LANGUAGES = {
@@ -879,7 +1136,10 @@ async def process_voice_input_pronunciation_enhanced(audio_file):
         
         # Step 5: High-Quality Voice Synthesis
         st.session_state.message_queue.put("🎵 Generating accent-free speech...")
-        audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+        audio_data, generation_time = await generate_speech_universal(
+            segment["text"], 
+            language_code=segment["language"]
+        )
         
         # Calculate total latency
         total_latency = time.time() - pipeline_start_time
@@ -1832,6 +2092,30 @@ def process_multilingual_text(text, detect_language=True):
 
 # 🔥 CORRECTED: Single Voice with Accent-Free Language Switching
 
+# 🔊 ADD UNIVERSAL TTS FUNCTIONS HERE (after process_multilingual_text_seamless function ends)
+
+async def generate_speech_universal(text, language_code=None, voice_id=None):
+    """Universal speech generation supporting multiple TTS providers"""
+    provider = st.session_state.tts_provider
+    
+    if provider == "openai":
+        return await generate_openai_speech(text, language_code, voice_id)
+    elif provider == "azure":
+        return await generate_azure_speech(text, language_code, voice_id)
+    else:  # elevenlabs (default)
+        return generate_speech(text, language_code, voice_id)
+
+def process_multilingual_text_universal(text, detect_language=True):
+    """Universal multilingual text processing"""
+    provider = st.session_state.tts_provider
+    
+    if provider == "openai":
+        return process_openai_multilingual_text(text)
+    elif provider == "azure":
+        return process_azure_multilingual_text(text)
+    else:  # elevenlabs
+        return process_multilingual_text_seamless(text, detect_language)
+
 def generate_speech_with_language_voice(text, language_code, segment_position=0, total_segments=1):
     """🔥 CORRECTED: Use SAME voice with language-specific pronunciation settings"""
     
@@ -2178,7 +2462,10 @@ async def process_voice_input_enhanced(audio_file):
         
         # Step 5: High-Quality Voice Synthesis
         st.session_state.message_queue.put("🎵 Generating natural speech...")
-        audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+        audio_data, generation_time = await generate_speech_universal(
+            segment["text"], 
+            language_code=segment["language"]
+        )
         
         # Calculate total latency
         total_latency = time.time() - pipeline_start_time
@@ -2348,7 +2635,10 @@ async def process_text_input(text):
     
     # Step 2: Text-to-Speech with accent isolation
     st.session_state.message_queue.put("Generating speech with accent isolation...")
-    audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+    audio_data, generation_time = await generate_speech_universal(
+        segment["text"], 
+        language_code=segment["language"]
+    )
     
     # Calculate total latency
     total_latency = time.time() - pipeline_start_time
@@ -2669,6 +2959,60 @@ def main():
         **Result:** Urdu sounds perfectly Urdu, English sounds perfectly English - ZERO accent bleeding!
         """)
         
+        
+        # Add this to your sidebar in main() function
+        st.subheader("🔊 TTS Provider Selection")
+
+        tts_provider = st.radio(
+            "Choose TTS Provider",
+            options=["elevenlabs", "openai", "azure"],
+            format_func=lambda x: {
+                "elevenlabs": "🎭 ElevenLabs (Current)",
+                "openai": "🤖 OpenAI TTS (Cheapest)", 
+                "azure": "☁️ Azure Speech (Enterprise)"
+            }[x],
+            key="tts_provider_select"
+        )
+
+        if tts_provider != st.session_state.tts_provider:
+            st.session_state.tts_provider = tts_provider
+            st.success(f"Switched to {tts_provider.upper()} TTS")
+
+        # Show provider-specific settings
+        if tts_provider == "azure":
+            azure_key = st.text_input(
+                "Azure Speech Key", 
+                value=st.session_state.azure_speech_key,
+                type="password"
+            )
+            azure_region = st.text_input(
+                "Azure Region", 
+                value=st.session_state.azure_speech_region,
+                placeholder="eastus"
+            )
+            
+            if st.button("Save Azure Settings"):
+                st.session_state.azure_speech_key = azure_key
+                st.session_state.azure_speech_region = azure_region
+                st.success("Azure settings saved!")
+
+        elif tts_provider == "openai":
+            openai_voice = st.selectbox(
+                "OpenAI Voice",
+                options=["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
+                index=0
+            )
+            st.session_state.openai_tts_voice = openai_voice
+
+        # Show cost comparison
+        st.info(f"""
+        **Current Provider: {tts_provider.upper()}**
+
+        Cost Comparison (per month):
+        - OpenAI: $10-20 (Cheapest)
+        - Azure: $20-40 (Enterprise)  
+        - ElevenLabs: $22-99 (Premium)
+        """)
         # Performance recommendations for low latency
         st.header("Latency Optimization")
         
