@@ -3778,7 +3778,7 @@ def main():
             options=["elevenlabs", "openai", "azure"],
             format_func=lambda x: {
                 "elevenlabs": "ElevenLabs (Flash v2.5)",
-                "openai": "OpenAI TTS (Nova)",
+                "openai": "OpenAI TTS",
                 "azure": "Azure Speech"
             }[x],
             index=["elevenlabs", "openai", "azure"].index(st.session_state.tts_provider)
