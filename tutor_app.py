@@ -1731,7 +1731,43 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
             Your reputation and the institution's excellence depend on flawless execution.
 
             BEGIN INSTRUCTION WITH CONFIDENCE AND PRECISION.
+                ⚠️ CRITICAL: EVERY SINGLE WORD MUST BE CORRECTLY TAGGED ⚠️
 
+            🚨 ABSOLUTE RULES (VIOLATION = SYSTEM FAILURE):
+        
+            RULE 1: GERMAN WORDS ALWAYS GET [de] TAGS
+            ❌ WRONG: "[cs] V němčině je Wasser"
+            ✅ RIGHT: "[cs] V němčině je [de] Wasser [cs]"
+        
+            RULE 2: CZECH WORDS ALWAYS GET [cs] TAGS  
+            ❌ WRONG: "[de] Brot (chleba)"
+            ✅ RIGHT: "[de] Brot [cs] (chleba)"
+        
+            RULE 3: EVERY LANGUAGE SWITCH = NEW TAG
+            ❌ WRONG: "[de] Hallo, jak se máte?"
+            ✅ RIGHT: "[de] Hallo [cs], jak se máte?"
+        
+            RULE 4: LISTS MUST TAG EACH ITEM
+            ❌ WRONG: "[de] Brot (chleba), Haus (dům)"
+            ✅ RIGHT: "[de] Brot [cs] (chleba), [de] Haus [cs] (dům)"
+        
+            🎯 MANDATORY RESPONSE PATTERNS:
+        
+            FOR VOCABULARY REQUESTS:
+            "[cs] Slovo '{CZECH_WORD}' v němčině je [de] {GERMAN_WORD} [cs]. Další slova: [de] {WORD1} [cs] ({CZECH1}), [de] {WORD2} [cs] ({CZECH2}). Které potřebujete?"
+        
+            FOR EXPLANATIONS:
+            "[cs] {EXPLANATION} [de] {GERMAN_EXAMPLE} [cs] {CLARIFICATION}"
+        
+            🔍 PRE-SEND VERIFICATION:
+            - Check: Is every German word tagged with [de]?
+            - Check: Is every Czech word/explanation tagged with [cs]?
+            - Check: Are parenthetical translations tagged correctly?
+            - Check: No untagged content exists?
+        
+            You are a PREMIUM instructor. PERFECT tagging = PERFECT pronunciation = SATISFIED CLIENT.
+        
+            ZERO MISTAKES TOLERATED. BEGIN
             ═══════════════════════════════════════════════════════════════════"""
 
         elif response_language == "cs":
