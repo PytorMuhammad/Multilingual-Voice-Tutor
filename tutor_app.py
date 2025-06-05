@@ -94,27 +94,139 @@ if 'azure_speech_key' not in st.session_state:
     st.session_state.azure_speech_key = os.environ.get("AZURE_SPEECH_KEY", "")
     st.session_state.azure_region = os.environ.get("AZURE_REGION", "eastus")
 
-# Provider-specific voice configurations for accent-free switching
 if 'provider_voice_configs' not in st.session_state:
     st.session_state.provider_voice_configs = {
         "elevenlabs": {
-            "voice_id": "21m00Tcm4TlvDq8ikWAM",
-            "model": "eleven_flash_v2_5"
+            "speakers": {
+                "Rachel": {
+                    "voice_id": "21m00Tcm4TlvDq8ikWAM", 
+                    "description": "Calm, professional female - excellent for multilingual",
+                    "model": "eleven_flash_v2_5"
+                },
+                "Adam": {
+                    "voice_id": "pNInz6obpgDQGcFmaJgB",
+                    "description": "Deep, authoritative male - great accent control", 
+                    "model": "eleven_flash_v2_5"
+                },
+                "Bella": {
+                    "voice_id": "EXAVITQu4vr4xnSDxMaL",
+                    "description": "Young, energetic female - clear pronunciation",
+                    "model": "eleven_flash_v2_5"
+                },
+                "Josh": {
+                    "voice_id": "TxGEqnHWrfWFTfGW9XjX", 
+                    "description": "Friendly male - consistent across languages",
+                    "model": "eleven_flash_v2_5"
+                },
+                "Antoni": {
+                    "voice_id": "ErXwobaYiN019PkySvjV",
+                    "description": "Warm, well-educated male - accent-free switching",
+                    "model": "eleven_flash_v2_5"
+                },
+                "Elli": {
+                    "voice_id": "MF3mGyEYCl7XYWbV9V6O",
+                    "description": "Emotional, expressive female - natural delivery", 
+                    "model": "eleven_flash_v2_5"
+                }
+            },
+            "selected": "Rachel"
         },
         "openai": {
-            "voice": "nova",  # Most neutral for multilingual
-            "model": "tts-1"
+            "speakers": {
+                "Nova": {
+                    "voice_id": "nova",
+                    "description": "Most versatile - excellent for multilingual content",
+                    "model": "tts-1-hd"
+                },
+                "Alloy": {
+                    "voice_id": "alloy", 
+                    "description": "Balanced, neutral - great accent control",
+                    "model": "tts-1-hd"
+                },
+                "Echo": {
+                    "voice_id": "echo",
+                    "description": "Clear, professional - consistent pronunciation",
+                    "model": "tts-1-hd" 
+                },
+                "Fable": {
+                    "voice_id": "fable",
+                    "description": "Expressive, engaging - natural language switching",
+                    "model": "tts-1-hd"
+                },
+                "Onyx": {
+                    "voice_id": "onyx",
+                    "description": "Deep, authoritative - accent-free delivery",
+                    "model": "tts-1-hd"
+                },
+                "Shimmer": {
+                    "voice_id": "shimmer", 
+                    "description": "Bright, energetic - clear multilingual speech",
+                    "model": "tts-1-hd"
+                }
+            },
+            "selected": "Nova"
         },
         "azure": {
-            "voice_cs": "cs-CZ-VlastaNeural",  # Czech female
-            "voice_de": "de-DE-KatjaNeural",   # German female - same speaker type
-            "rate": "0.9",
-            "pitch": "0%"
+            "speakers": {
+                "Jenny_Multilingual": {
+                    "voice_id": "en-US-JennyMultilingualNeural",
+                    "description": "Microsoft's best multilingual voice - 14 languages",
+                    "model": "neural",
+                    "languages": ["en-US", "de-DE", "es-ES", "fr-FR", "it-IT", "pt-BR", "zh-CN"]
+                },
+                "Ryan_Multilingual": {
+                    "voice_id": "en-US-RyanMultilingualNeural", 
+                    "description": "Professional male - excellent language switching",
+                    "model": "neural",
+                    "languages": ["en-US", "de-DE", "es-ES", "fr-FR", "it-IT", "pt-BR"]
+                },
+                "Aria": {
+                    "voice_id": "en-US-AriaNeural",
+                    "description": "Natural, conversational - good accent control",
+                    "model": "neural",
+                    "languages": ["en-US"]
+                },
+                "Guy": {
+                    "voice_id": "en-US-GuyNeural",
+                    "description": "Warm, professional male - consistent delivery", 
+                    "model": "neural",
+                    "languages": ["en-US"]
+                },
+                "Davis": {
+                    "voice_id": "en-US-DavisNeural",
+                    "description": "Deep, authoritative - clear pronunciation",
+                    "model": "neural", 
+                    "languages": ["en-US"]
+                },
+                "Amanda": {
+                    "voice_id": "en-US-AmandaNeural",
+                    "description": "Friendly, engaging - natural speaking style",
+                    "model": "neural",
+                    "languages": ["en-US"]
+                }
+            },
+            "selected": "Jenny_Multilingual"
         }
     }
-# Backward compatibility
+
+# Initialize selected speakers per provider
+if 'selected_speakers' not in st.session_state:
+    st.session_state.selected_speakers = {
+        "elevenlabs": "Rachel",
+        "openai": "Nova", 
+        "azure": "Jenny_Multilingual"
+    }
+# Dynamic voice ID based on selected provider and speaker
+def get_current_voice_id():
+    provider = st.session_state.tts_provider
+    if provider in st.session_state.provider_voice_configs:
+        selected_speaker = st.session_state.selected_speakers.get(provider, list(st.session_state.provider_voice_configs[provider]["speakers"].keys())[0])
+        return st.session_state.provider_voice_configs[provider]["speakers"][selected_speaker]["voice_id"]
+    return "21m00Tcm4TlvDq8ikWAM"  # Fallback
+
+# Update elevenlabs_voice_id dynamically
 if 'elevenlabs_voice_id' not in st.session_state:
-    st.session_state.elevenlabs_voice_id = st.session_state.language_voices["default"]
+    st.session_state.elevenlabs_voice_id = get_current_voice_id()
     
 # Whisper speech recognition config
 if 'whisper_model' not in st.session_state:
@@ -1459,97 +1571,168 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
         response_language = st.session_state.response_language
         
         if response_language == "both":
-            system_content = """You are "GermanMeister" - a premium Czech-speaking German language tutor. Your job is to teach German to Czech speakers using INTELLIGENT language mixing.
+            system_content = """🎓 GERMANMEISTER PROFESSIONAL LANGUAGE INSTRUCTION SYSTEM 
 
-        CORE IDENTITY:
-        You are a certified German language instructor with 15+ years of experience teaching Czech speakers. You hold a Master's degree in Germanic linguistics and are perfectly bilingual in Czech and German. Your teaching style is engaging, systematic, and results-oriented.
+            ═══════════════════════════════════════════════════════════════════
 
-        CURRICULUM STRUCTURE (A1-A2 LEVELS):
-        A1 Level: Basic greetings, present tense (sein, haben), articles (der/die/das), family/food/time vocabulary, basic word order, question formation
-        A2 Level: Past/future tenses, modal verbs, adjective declination, dative/accusative cases, prepositions, separable verbs, travel/work vocabulary
+            🏆 INSTRUCTOR PROFILE & CREDENTIALS
+            You are Dr. GermanMeister, a premium certified German language instructor with:
+            - 15+ years specialized experience: Czech → German language acquisition
+            - M.A. Germanic Linguistics, Charles University Prague  
+            - Certified CEFR examiner (A1-C2 levels)
+            - Published researcher in Czech-German phonetic interference
+            - 98% student satisfaction rate, 2000+ successful graduates
+            - Specialization: Accent elimination and pronunciation perfection
 
-        PEDAGOGICAL APPROACH:
-        1. Use Czech [cs] for explanations, German [de] for examples and practice
-        2. Break complex concepts into micro-lessons
-        3. Always provide immediate practice opportunities
-        4. Use real-life scenarios (restaurant, hotel, work)
-        5. Correct errors gently with clear explanations
-        6. Reference previous learning and show progress
-        7. Include German culture and regional differences
+            ═══════════════════════════════════════════════════════════════════
 
-        VOCABULARY LESSON FORMAT:
-        "[cs] Explanation [de] German term [cs] detailed explanation [de] example sentence [cs] practice suggestion"
-        - Include: German word + article, Czech translation, pronunciation tip, example sentence, related words
+            🚨 MISSION-CRITICAL TECHNICAL REQUIREMENTS (ZERO TOLERANCE)
 
-        GRAMMAR EXPLANATIONS:
-        - Start with Czech explanation of concept
-        - Show German examples with highlighting  
-        - Explain pattern/rule clearly
-        - Provide 3-4 practice examples
-        - Connect to previously learned material
+            ⚠️ TAGGING PROTOCOL ALPHA-7 (MANDATORY COMPLIANCE)
+            Every response MUST pass these technical specifications:
 
-        CONVERSATION PRACTICE:
-        - Set realistic scenarios (ordering food, directions)
-        - Provide German phrases with Czech explanations
-        - Encourage role-play responses
-        - Correct errors with explanations
-        - Build confidence progressively
+            SPECIFICATION 1: ABSOLUTE LANGUAGE ISOLATION
+            ❌ VIOLATION: "[de] Hallo - Ahoj"              ← ACCENT BLEEDING
+            ❌ VIOLATION: "[de] Danke - Děkuji"            ← ACCENT BLEEDING  
+            ❌ VIOLATION: "[cs] Říkáme Wasser"             ← ACCENT BLEEDING
+            ✅ COMPLIANT: "[de] Hallo [cs] - ahoj"         ← PERFECT ISOLATION
+            ✅ COMPLIANT: "[de] Danke [cs] - děkuji"       ← PERFECT ISOLATION
+            ✅ COMPLIANT: "[cs] Říkáme [de] Wasser"        ← PERFECT ISOLATION
 
-        ERROR CORRECTION PROTOCOL:
-        1. Acknowledge attempt positively
-        2. Identify specific error type
-        3. Explain correct form with reasoning
-        4. Provide corrected version
-        5. Give additional practice opportunity
+            SPECIFICATION 2: ZERO UNTAGGED CONTENT TOLERANCE
+            ❌ VIOLATION: "Doufám, že pomůže!"             ← UNTAGGED CONTENT
+            ❌ VIOLATION: "[cs] Slovo Wasser znamená"      ← MIXED TAGGING
+            ✅ COMPLIANT: "[cs] Doufám, že pomůže!"        ← FULLY TAGGED
+            ✅ COMPLIANT: "[cs] Slovo [de] Wasser [cs] znamená" ← PRECISE TAGGING
 
-        QUALITY STANDARDS:
-        - Use proper [cs] and [de] markers always
-        - Keep responses 2-4 sentences for engagement
-        - Include at least one practice element per response
-        - Maintain encouraging, professional tone
-        - Provide actionable next steps
+            SPECIFICATION 3: VOCABULARY ENUMERATION PROTOCOL
+            ❌ CRITICAL FAILURE:
+            "[de] 1. Hallo - Ahoj
+            2. Danke - Děkuji
+            3. Bitte - Prosím"
 
-        SAMPLE RESPONSE STYLE:
-        For vocabulary: "[cs] Perfektní otázka! 'Voda' je [de] das Wasser [cs] - rod střední. Dalších pár: [de] das Brot [cs] (chléb), [de] die Milch [cs] (mléko). Zkuste: [de] Ich trinke Wasser [cs] (piju vodu). Jaké jídlo máte nejraději?"
+            ✅ TECHNICAL COMPLIANCE:
+            "[cs] 1. [de] Hallo [cs] - ahoj
+            [cs] 2. [de] Danke [cs] - děkuji  
+            [cs] 3. [de] Bitte [cs] - prosím"
 
-        For grammar errors: "[cs] Téměř správně! Místo [de] 'ich haben' [cs] řekněte [de] 'ich habe' [cs] - první osoba je vždy 'habe'. Zkuste: [de] Ich habe einen Hund [cs] (mám psa)."
+            SPECIFICATION 4: TRANSLATION BOUNDARY ENFORCEMENT
+            ❌ VIOLATION: "[de] Wasser - voda"
+            ❌ VIOLATION: "[cs] Dobrý den - Guten Tag"
+            ✅ COMPLIANT: "[de] Wasser [cs] - voda"
+            ✅ COMPLIANT: "[cs] Dobrý den - [de] Guten Tag"
 
-        You're guiding PAID customers through structured German learning. Every response must add value to their investment and move them toward conversational fluency. Be systematic, encouraging, and results-focused.
-        NEVER DO THIS (wrong):
-        ❌ "[cs] Jsem učitel [de] Ich bin Lehrer" (same content translated)
+            ═══════════════════════════════════════════════════════════════════
 
-        ALWAYS DO THIS (correct):
-        ✅ "[cs] Jsem váš učitel němčiny. Naučíme se říct [de] Guten Morgen [cs] což znamená 'dobré ráno'"
-        
-        LANGUAGE PURPOSES:
-        - Czech [cs] = Your teaching language (explain, instruct, encourage)  
-        - German [de] = Target language (vocabulary, examples, practice phrases)
+            📚 ADVANCED PEDAGOGICAL FRAMEWORK
 
+            🎯 CURRICULUM ARCHITECTURE (CEFR-ALIGNED)
+            ├── A1 FOUNDATION MODULE
+            │   ├── Phonetic System Integration (German → Czech mapping)
+            │   ├── Core Lexicon: sein/haben conjugation mastery
+            │   ├── Article System: der/die/das with mnemonic techniques
+            │   ├── Survival Vocabulary: 200 high-frequency lexemes
+            │   └── Basic Syntax: SVO → SOV transformation patterns
+            │
+            └── A2 INTERMEDIATE MODULE
+                ├── Temporal System: Perfekt/Präteritum differentiation
+                ├── Modal Verb Complex: können/müssen/dürfen/sollen
+                ├── Case System Foundation: Nominativ/Akkusativ introduction
+                ├── Preposition Mastery: spatial/temporal relationships
+                └── Separable Verb Mechanics: prefix positioning rules
 
-        CRITICAL TAGGING RULES:
-        1. Use [cs] ONLY for Czech explanations and instructions
-        2. Use [de] ONLY for German vocabulary, phrases, and examples to learn
-        3. DO NOT tag every word - only tag when switching languages
-        4. Tag complete meaningful units (words/phrases), not individual words
+            🧠 COGNITIVE LEARNING STRATEGIES
+            1. MICROLEARNING PROTOCOL: 2-3 sentence maximum responses
+            2. SCAFFOLDED PROGRESSION: Known → Unknown concept bridging
+            3. CONTEXTUALIZED ACQUISITION: Real-world scenario integration
+            4. METACOGNITIVE AWARENESS: Pattern recognition development
+            5. SPACED REPETITION: Strategic concept reinforcement
+            6. ERROR ANTICIPATION: Czech L1 interference prediction
 
-        EXAMPLES OF CORRECT TAGGING:
-        ✅ "[cs] Slovo 'voda' v němčině je [de] das Wasser [cs] - rod střední"
-        ✅ "[cs] Řekněte [de] Guten Morgen [cs] což znamená dobré ráno"
-        ✅ "[cs] Zkuste větu [de] Ich trinke Wasser [cs] - rozumíte?"
+            🎭 ENGAGEMENT METHODOLOGY
+            ├── SOCRATIC QUESTIONING: Student discovery facilitation
+            ├── TASK-BASED LEARNING: Practical application focus
+            ├── CULTURAL INTEGRATION: German-speaking world context
+            ├── CONFIDENCE BUILDING: Positive reinforcement protocols
+            └── AUTONOMY DEVELOPMENT: Self-correction skill building
 
-        WRONG TAGGING (DON'T DO):
-        ❌ "[cs] Slovo [cs] 'voda' [cs] v [cs] němčině [cs] je [de] das [de] Wasser"
-        ❌ "[de] Ich [de] trinke [de] Wasser"
+            ═══════════════════════════════════════════════════════════════════
 
-        TEACHING APPROACH:
-        - Start explanations in Czech [cs]
-        - Introduce German words/phrases with [de] 
-        - Return to Czech [cs] for clarification
-        - Keep responses 2-3 sentences max
-        - Always include practice opportunity
+            💎 PROFESSIONAL RESPONSE TEMPLATES
 
-        PERSONALITY: Professional, encouraging, systematic. You're teaching paying students who expect results.
-        make sure you're not adding german line or word in [cs] tag & czech line or word within [de] tag"""
+            🗣️ VOCABULARY INSTRUCTION TEMPLATE:
+            "[cs] Výborná otázka! Německé slovo [de] {GERMAN_WORD} [cs] znamená {CZECH_MEANING}. Poznámka: {GRAMMATICAL_INFO}. Praktická věta: [de] {EXAMPLE_SENTENCE} [cs]. Vyzkoušejte si: {PRACTICE_TASK}?"
+
+            🔧 GRAMMAR CORRECTION TEMPLATE:
+            "[cs] Velmi blízko! Místo [de] {INCORRECT_FORM} [cs] použijte [de] {CORRECT_FORM} [cs], protože {GRAMMATICAL_REASON}. Správně: [de] {CORRECTED_SENTENCE} [cs]. Rozumíte rozdílu?"
+
+            📋 VOCABULARY LIST TEMPLATE:
+            "[cs] {CATEGORY_NAME}:
+            [cs] 1. [de] {GERMAN_1} [cs] - {CZECH_1}
+            [cs] 2. [de] {GERMAN_2} [cs] - {CZECH_2}  
+            [cs] 3. [de] {GERMAN_3} [cs] - {CZECH_3}
+            [cs] Které slovo je pro vás nejdůležitější?"
+
+            🎯 CONVERSATION PRACTICE TEMPLATE:
+            "[cs] Představte si situaci: {SCENARIO}. Řekněte: [de] {GERMAN_PHRASE} [cs]. To znamená: {EXPLANATION}. Jak byste odpověděli na otázku [de] {FOLLOW_UP_QUESTION} [cs]?"
+
+            ═══════════════════════════════════════════════════════════════════
+
+            🔬 QUALITY ASSURANCE PROTOCOL
+
+            PRE-TRANSMISSION CHECKLIST:
+            □ Language isolation verified (no mixed tags)
+            □ Complete tagging coverage (zero untagged content)
+            □ Czech explanatory language clarity
+            □ German example accuracy and appropriateness
+            □ Practice opportunity integration
+            □ Cultural sensitivity compliance
+            □ Pronunciation guidance inclusion
+            □ Student engagement element present
+
+            LINGUISTIC ACCURACY STANDARDS:
+            - German grammar: 100% accuracy required
+            - Czech explanations: Native-level fluency
+            - Phonetic annotations: IPA-compliant where needed
+            - Cultural references: Authentic and current
+            - Pedagogical progression: CEFR-aligned
+
+            ═══════════════════════════════════════════════════════════════════
+
+            🎖️ PROFESSIONAL EXCELLENCE INDICATORS
+
+            CLIENT SUCCESS METRICS:
+            ✓ Accent-free pronunciation achievement
+            ✓ Natural language switching capability  
+            ✓ Confidence in German communication
+            ✓ Cultural competency development
+            ✓ Independent learning skill acquisition
+
+            INSTRUCTOR PERFORMANCE STANDARDS:
+            ✓ Technical tagging precision: 100%
+            ✓ Pedagogical effectiveness: Premium level
+            ✓ Student engagement: Maximum retention
+            ✓ Cultural authenticity: Native-equivalent
+            ✓ Professional demeanor: Executive standard
+
+            ═══════════════════════════════════════════════════════════════════
+
+            🚀 EXECUTION MANDATE
+
+            You represent a premium language education service. Every interaction must:
+            - Demonstrate exceptional pedagogical expertise
+            - Deliver measurable learning outcomes
+            - Maintain absolute technical precision
+            - Exceed client expectations consistently
+            - Advance student toward fluency goals
+
+            REMEMBER: Perfect tagging = Perfect pronunciation = Premium results = Professional success
+
+            Your reputation and the institution's excellence depend on flawless execution.
+
+            BEGIN INSTRUCTION WITH CONFIDENCE AND PRECISION.
+
+            ═══════════════════════════════════════════════════════════════════"""
 
         elif response_language == "cs":
             system_content = "You are a helpful Czech assistant. ALWAYS respond ONLY in Czech with [cs] markers."
@@ -2701,7 +2884,7 @@ def get_voices():
         return []
 
 def generate_speech(text, language_code=None, voice_id=None):
-    """ACCENT-FREE speech generation using voice isolation + Flash v2.5 optimization"""
+    """Generate speech using ElevenLabs with selected speaker"""
     if not text or text.strip() == "":
         logger.error("Empty text provided to generate_speech")
         return None, 0
@@ -2711,25 +2894,23 @@ def generate_speech(text, language_code=None, voice_id=None):
         logger.error("ElevenLabs API key not provided")
         return None, 0
     
-    # SINGLE VOICE: Use same voice for all languages - no more "two speakers"
-    selected_voice_id = voice_id or st.session_state.elevenlabs_voice_id
-    logger.info(f"Using SAME voice for {language_code}: {selected_voice_id}")
+    # Get selected speaker configuration
+    selected_speaker_name = st.session_state.selected_speakers.get("elevenlabs", "Rachel")
+    speaker_config = st.session_state.provider_voice_configs["elevenlabs"]["speakers"][selected_speaker_name]
+    selected_voice_id = voice_id or speaker_config["voice_id"]
     
-    # Check cache first
-    cache_key = f"{text}_{language_code}_{selected_voice_id}_flash_v2_5"
-    if hasattr(st.session_state, 'tts_cache') and cache_key in st.session_state.tts_cache:
-        return st.session_state.tts_cache[cache_key]
+    logger.info(f"Using ElevenLabs speaker: {selected_speaker_name} ({selected_voice_id})")
     
+    # Rest of the function remains the same...
     headers = {
         "Accept": "audio/mpeg",
         "Content-Type": "application/json",
         "xi-api-key": api_key
     }
     
-    # METHOD 2: Use Flash v2.5 model for BEST accent-free performance
-    model_id = "eleven_flash_v2_5"  # CRITICAL: Latest model with 32 languages + ultra-low latency
+    model_id = speaker_config["model"]
     
-    # METHOD 1: Language-specific voice settings for accent isolation
+    # Language-specific voice settings for accent isolation
     if language_code and language_code in st.session_state.voice_settings:
         voice_settings = st.session_state.voice_settings[language_code].copy()
         logger.info(f"Using optimized {language_code} settings: {voice_settings}")
@@ -2749,12 +2930,11 @@ def generate_speech(text, language_code=None, voice_id=None):
     start_time = time.time()
     
     try:
-        # Optimized for Flash v2.5 speed
         response = requests.post(
             f"https://api.elevenlabs.io/v1/text-to-speech/{selected_voice_id}",
             json=data,
             headers=headers,
-            timeout=10  # Flash v2.5 is much faster
+            timeout=10
         )
         
         generation_time = time.time() - start_time
@@ -2764,28 +2944,28 @@ def generate_speech(text, language_code=None, voice_id=None):
             if len(content) < 100:
                 return None, generation_time
                 
-            # Cache the result
-            if not hasattr(st.session_state, 'tts_cache'):
-                st.session_state.tts_cache = {}
-            st.session_state.tts_cache[cache_key] = (BytesIO(content), generation_time)
-            
-            logger.info(f"✅ Accent-free audio generated for {language_code} in {generation_time:.2f}s")
+            logger.info(f"✅ ElevenLabs ({selected_speaker_name}) generated for {language_code} in {generation_time:.2f}s")
             return BytesIO(content), generation_time
         else:
             logger.error(f"TTS API error: {response.status_code} - {response.text}")
             return None, generation_time
     
     except Exception as e:
-        logger.error(f"Accent-free TTS error: {str(e)}")
+        logger.error(f"ElevenLabs TTS error: {str(e)}")
         return None, time.time() - start_time
 
 async def generate_speech_openai(text, language_code=None):
-    """Generate speech using OpenAI TTS"""
+    """Generate speech using OpenAI TTS with selected speaker"""
     api_key = st.session_state.openai_api_key
     if not api_key:
         return None, 0
-
-    clean_text = re.sub(r'\[cs\]|\[de\]', '', text).strip()  
+    
+    # Get selected speaker configuration
+    selected_speaker_name = st.session_state.selected_speakers.get("openai", "Nova")
+    speaker_config = st.session_state.provider_voice_configs["openai"]["speakers"][selected_speaker_name]
+    
+    # Clean text for OpenAI TTS (remove language markers)
+    clean_text = re.sub(r'\[cs\]|\[de\]', '', text).strip()
     
     start_time = time.time()
     
@@ -2798,9 +2978,9 @@ async def generate_speech_openai(text, language_code=None):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "tts-1",
+                    "model": speaker_config["model"],
                     "input": clean_text,
-                    "voice": "nova",  # Neutral voice for multilingual
+                    "voice": speaker_config["voice_id"],
                     "response_format": "mp3",
                     "speed": 0.9
                 },
@@ -2810,7 +2990,7 @@ async def generate_speech_openai(text, language_code=None):
             generation_time = time.time() - start_time
             
             if response.status_code == 200:
-                logger.info(f"✅ OpenAI TTS generated in {generation_time:.2f}s")
+                logger.info(f"✅ OpenAI TTS ({selected_speaker_name}) generated in {generation_time:.2f}s")
                 return BytesIO(response.content), generation_time
             else:
                 logger.error(f"OpenAI TTS error: {response.status_code}")
@@ -2821,7 +3001,7 @@ async def generate_speech_openai(text, language_code=None):
         return None, time.time() - start_time
 
 async def generate_speech_azure(text, language_code=None):
-    """Generate speech using Azure Speech"""
+    """Generate speech using Azure Speech with selected speaker"""
     speech_key = st.session_state.azure_speech_key
     region = st.session_state.azure_region
     
@@ -2835,25 +3015,19 @@ async def generate_speech_azure(text, language_code=None):
         st.error("Azure Speech SDK not installed. Run: pip install azure-cognitiveservices-speech")
         return None, 0
     
-    clean_text = re.sub(r'\[cs\]|\[de\]', '', text).strip()  
+    # Get selected speaker configuration
+    selected_speaker_name = st.session_state.selected_speakers.get("azure", "Jenny_Multilingual")
+    speaker_config = st.session_state.provider_voice_configs["azure"]["speakers"][selected_speaker_name]
     
-    # Choose voice based on language
-    if language_code == "ur":
-        voice_name = "ur-PK-AsadNeural"
-        language = "ur-PK"
-    elif language_code == "en":
-        voice_name = "en-US-JennyNeural"
-        language = "en-US"
-    else:
-        voice_name = "en-US-JennyNeural"  # Default
-        language = "en-US"
+    # Clean text (remove language markers)
+    clean_text = re.sub(r'\[cs\]|\[de\]', '', text).strip()
     
     start_time = time.time()
     
     try:
         # Configure Azure Speech
         speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=region)
-        speech_config.speech_synthesis_voice_name = voice_name
+        speech_config.speech_synthesis_voice_name = speaker_config["voice_id"]
         
         # Create synthesizer
         synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
@@ -2864,7 +3038,7 @@ async def generate_speech_azure(text, language_code=None):
         generation_time = time.time() - start_time
         
         if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-            logger.info(f"✅ Azure TTS generated in {generation_time:.2f}s")
+            logger.info(f"✅ Azure TTS ({selected_speaker_name}) generated in {generation_time:.2f}s")
             return BytesIO(result.audio_data), generation_time
         else:
             logger.error(f"Azure TTS error: {result.reason}")
@@ -2873,7 +3047,6 @@ async def generate_speech_azure(text, language_code=None):
     except Exception as e:
         logger.error(f"Azure TTS error: {str(e)}")
         return None, time.time() - start_time
-    
 
 async def generate_speech_unified(text, language_code=None):
     """Unified speech generation using selected provider"""
@@ -3642,27 +3815,80 @@ def main():
         
         elif tts_provider == "elevenlabs":
             st.info("✅ ElevenLabs uses your existing ElevenLabs API key")
+            
+        # Speaker Selection per Provider
+        if tts_provider in st.session_state.provider_voice_configs:
+            st.write(f"**{tts_provider.title()} Speakers:**")
+            
+            speakers = st.session_state.provider_voice_configs[tts_provider]["speakers"]
+            current_speaker = st.session_state.selected_speakers.get(tts_provider, list(speakers.keys())[0])
+            
+            # Create speaker options with descriptions
+            speaker_options = {}
+            for name, config in speakers.items():
+                description = config.get("description", "Professional voice")
+                speaker_options[f"{name} - {description}"] = name
+            
+            selected_speaker_display = st.selectbox(
+                f"Choose {tts_provider.title()} Speaker",
+                options=list(speaker_options.keys()),
+                index=list(speaker_options.values()).index(current_speaker) if current_speaker in speaker_options.values() else 0,
+                key=f"{tts_provider}_speaker_select"
+            )
+            
+            selected_speaker = speaker_options[selected_speaker_display]
+            
+            if selected_speaker != st.session_state.selected_speakers.get(tts_provider):
+                st.session_state.selected_speakers[tts_provider] = selected_speaker
+                
+                # Update ElevenLabs voice ID if ElevenLabs is selected
+                if tts_provider == "elevenlabs":
+                    new_voice_id = speakers[selected_speaker]["voice_id"]
+                    st.session_state.elevenlabs_voice_id = new_voice_id
+                
+                st.success(f"✅ Speaker changed to: {selected_speaker}")
+                
+            # Show speaker details
+            speaker_config = speakers[selected_speaker]
+            st.info(f"""
+            **{selected_speaker}**: {speaker_config['description']}
+            - Voice ID: {speaker_config['voice_id'][:12]}...
+            - Model: {speaker_config['model']}
+            """)
+
+        # Voice Testing Section
+        st.write("**🎵 Test Current Speaker:**")
+        test_text = st.text_input(
+            "Test Text", 
+            value="Hello, this is a test of multilingual speech quality.",
+            key="speaker_test_text"
+        )
+
+        if st.button("🔊 Test Speaker"):
+            if test_text.strip():
+                with st.spinner(f"Testing {tts_provider} speaker..."):
+                    try:
+                        # Generate test audio
+                        if tts_provider == "elevenlabs":
+                            audio_data, latency = generate_speech(test_text)
+                        elif tts_provider == "openai":
+                            audio_data, latency = asyncio.run(generate_speech_openai(test_text))
+                        elif tts_provider == "azure":
+                            audio_data, latency = asyncio.run(generate_speech_azure(test_text))
+                        
+                        if audio_data:
+                            st.audio(audio_data.read(), format="audio/mp3")
+                            st.success(f"✅ Test completed in {latency:.2f}s")
+                        else:
+                            st.error("❌ Test failed - check API keys")
+                            
+                    except Exception as e:
+                        st.error(f"Test error: {str(e)}")
         # Performance recommendations for low latency
         st.header("Latency Optimization")
         
         avg_total = calculate_average_latency(st.session_state.performance_metrics["total_latency"])
-        
-        if avg_total > 3.0:
-            st.warning("""
-            ### Hardware Recommendations for Lower Latency
-            
-            To achieve the target latency of under 3 seconds:
-            
-            1. Use a dedicated server with:
-               - NVIDIA GPU (T4 or better)
-               - 16+ GB RAM
-               - SSD storage
-               
-            2. Run Whisper on GPU acceleration
-            
-            3. Consider a business plan for ElevenLabs
-               for higher priority API access
-            """)
+
         
         # Performance metrics
         st.header("Performance")
