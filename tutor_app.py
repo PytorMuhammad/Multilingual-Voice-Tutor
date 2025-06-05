@@ -2141,9 +2141,9 @@ async def process_multilingual_text_seamless(text, detect_language=True):
     
     if len(segments) <= 1:
         # Single segment - use unified generation
-        audio_data, generation_time = generate_speech_unified(
-            segments[0]["text"] if segments else text, 
-            segments[0]["language"] if segments else None
+        audio_data, generation_time = await generate_speech_unified(  # Add await
+            segment["text"], 
+            segment["language"]
         )
         
         if audio_data:
@@ -3369,7 +3369,7 @@ async def process_text_input(text):
     
     # Step 2: Text-to-Speech with accent isolation
     st.session_state.message_queue.put("Generating speech with accent isolation...")
-    audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+    audio_path, tts_latency = await process_multilingual_text_seamless(response_text)  # FIX: Add await here
     
     # Calculate total latency
     total_latency = time.time() - pipeline_start_time
