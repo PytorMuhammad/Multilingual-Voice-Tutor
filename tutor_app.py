@@ -20,7 +20,7 @@ from pydub import AudioSegment
 from pydub.silence import split_on_silence
 from io import BytesIO
 import noisereduce as nr  # For noise reduction
-
+import openai
 # Web interface and async handling
 import streamlit as st
 import httpx
@@ -917,7 +917,7 @@ async def process_voice_input_pronunciation_enhanced(audio_file):
         
         # Step 5: High-Quality Voice Synthesis
         st.session_state.message_queue.put("🎵 Generating accent-free speech...")
-        audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+        audio_path, tts_latency = await process_multilingual_text_seamless(response_text)
         
         # Calculate total latency
         total_latency = time.time() - pipeline_start_time
@@ -2132,7 +2132,7 @@ def create_accent_free_ssml(text, language_code):
     
     return enhanced_text
 
-def process_multilingual_text_seamless(text, detect_language=True):
+async def process_multilingual_text_seamless(text, detect_language=True):
     """Process multilingual text with intelligent accent-free switching"""
     
     # Parse segments more intelligently
@@ -2140,7 +2140,7 @@ def process_multilingual_text_seamless(text, detect_language=True):
     
     if len(segments) <= 1:
         # Single segment - use unified generation
-        audio_data, generation_time = generate_speech_unified(
+        audio_data, generation_time = await generate_speech_unified(
             segments[0]["text"] if segments else text, 
             segments[0]["language"] if segments else None
         )
@@ -2161,7 +2161,7 @@ def process_multilingual_text_seamless(text, detect_language=True):
             continue
             
         # Generate with appropriate provider
-        audio_data, generation_time = generate_speech_unified(
+        audio_data, generation_time = await generate_speech_unified(
             segment["text"], 
             segment["language"]
         )
@@ -2784,11 +2784,8 @@ async def generate_speech_openai(text, language_code=None):
     api_key = st.session_state.openai_api_key
     if not api_key:
         return None, 0
-    
-    config = st.session_state.provider_voice_configs["openai"]
-    
-    # Clean text for OpenAI TTS
-    clean_text = re.sub(r'\[cs\]|\[de\]', '', text).strip()
+
+    clean_text = re.sub(r'\[cs\]|\[de\]', '', text).strip()  
     
     start_time = time.time()
     
@@ -2801,11 +2798,11 @@ async def generate_speech_openai(text, language_code=None):
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": config["model"],
+                    "model": "tts-1",
                     "input": clean_text,
-                    "voice": config["voice"],
+                    "voice": "nova",  # Neutral voice for multilingual
                     "response_format": "mp3",
-                    "speed": 0.9  # Slightly slower for clarity
+                    "speed": 0.9
                 },
                 timeout=20.0
             )
@@ -2813,6 +2810,7 @@ async def generate_speech_openai(text, language_code=None):
             generation_time = time.time() - start_time
             
             if response.status_code == 200:
+                logger.info(f"✅ OpenAI TTS generated in {generation_time:.2f}s")
                 return BytesIO(response.content), generation_time
             else:
                 logger.error(f"OpenAI TTS error: {response.status_code}")
@@ -2828,6 +2826,7 @@ async def generate_speech_azure(text, language_code=None):
     region = st.session_state.azure_region
     
     if not speech_key:
+        st.warning("Azure Speech API key not set. Please configure in sidebar.")
         return None, 0
     
     try:
@@ -2836,20 +2835,18 @@ async def generate_speech_azure(text, language_code=None):
         st.error("Azure Speech SDK not installed. Run: pip install azure-cognitiveservices-speech")
         return None, 0
     
-    config = st.session_state.provider_voice_configs["azure"]
+    clean_text = re.sub(r'\[cs\]|\[de\]', '', text).strip()  
     
     # Choose voice based on language
-    if language_code == "cs":
-        voice_name = config["voice_cs"]
-        language = "cs-CZ"
-    elif language_code == "de":
-        voice_name = config["voice_de"] 
-        language = "de-DE"
+    if language_code == "ur":
+        voice_name = "ur-PK-AsadNeural"
+        language = "ur-PK"
+    elif language_code == "en":
+        voice_name = "en-US-JennyNeural"
+        language = "en-US"
     else:
-        voice_name = config["voice_cs"]  # Default
-        language = "cs-CZ"
-    
-    clean_text = re.sub(r'\[cs\]|\[de\]', '', text).strip()
+        voice_name = "en-US-JennyNeural"  # Default
+        language = "en-US"
     
     start_time = time.time()
     
@@ -2858,26 +2855,16 @@ async def generate_speech_azure(text, language_code=None):
         speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=region)
         speech_config.speech_synthesis_voice_name = voice_name
         
-        # Create SSML for better control
-        ssml = f"""
-        <speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="{language}">
-            <voice name="{voice_name}">
-                <prosody rate="{config['rate']}" pitch="{config['pitch']}">
-                    {clean_text}
-                </prosody>
-            </voice>
-        </speak>
-        """
+        # Create synthesizer
+        synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
         
-        # Generate speech to memory
-        audio_config = speechsdk.audio.AudioOutputConfig(use_default_speaker=False)
-        synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-        
-        result = synthesizer.speak_ssml_async(ssml).get()
+        # Generate speech
+        result = synthesizer.speak_text_async(clean_text).get()
         
         generation_time = time.time() - start_time
         
         if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            logger.info(f"✅ Azure TTS generated in {generation_time:.2f}s")
             return BytesIO(result.audio_data), generation_time
         else:
             logger.error(f"Azure TTS error: {result.reason}")
@@ -2886,19 +2873,21 @@ async def generate_speech_azure(text, language_code=None):
     except Exception as e:
         logger.error(f"Azure TTS error: {str(e)}")
         return None, time.time() - start_time
+    
 
-def generate_speech_unified(text, language_code=None):
+async def generate_speech_unified(text, language_code=None):
     """Unified speech generation using selected provider"""
     provider = st.session_state.tts_provider
     
     if provider == "elevenlabs":
         return generate_speech(text, language_code)
     elif provider == "openai":
-        return asyncio.run(generate_speech_openai(text, language_code))
+        return await generate_speech_openai(text, language_code)  # ✅ FIXED
     elif provider == "azure":
-        return asyncio.run(generate_speech_azure(text, language_code))
+        return await generate_speech_azure(text, language_code)   # ✅ FIXED
     else:
         return generate_speech(text, language_code)  # Fallback
+    
 
 def add_accent_free_markup(text, language_code):
     """Add SSML markup for accent-free pronunciation"""
@@ -3116,7 +3105,7 @@ async def process_voice_input_enhanced(audio_file):
         
         # Step 5: High-Quality Voice Synthesis
         st.session_state.message_queue.put("🎵 Generating natural speech...")
-        audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+        audio_path, tts_latency = await process_multilingual_text_seamless(response_text)
         
         # Calculate total latency
         total_latency = time.time() - pipeline_start_time
@@ -3203,7 +3192,7 @@ async def process_voice_input_pronunciation_enhanced(audio_file):
         
         # Step 5: High-Quality Voice Synthesis
         st.session_state.message_queue.put("🎵 Generating accent-free speech...")
-        audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+        audio_path, tts_latency = await process_multilingual_text_seamless(response_text)
         
         # Calculate total latency
         total_latency = time.time() - pipeline_start_time
@@ -3371,7 +3360,7 @@ async def process_text_input(text):
     
     # Step 2: Text-to-Speech with accent isolation
     st.session_state.message_queue.put("Generating speech with accent isolation...")
-    audio_path, tts_latency = process_multilingual_text_seamless(response_text)
+    audio_path, tts_latency = await process_multilingual_text_seamless(response_text)
     
     # Calculate total latency
     total_latency = time.time() - pipeline_start_time
