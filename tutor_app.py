@@ -92,7 +92,7 @@ if 'tts_provider' not in st.session_state:
 
 if 'provider_voice_configs' not in st.session_state:
     st.session_state.provider_voice_configs = {
-        "elevenlabs": {
+        "elevenlabs_flash": {
             "speakers": {
                 "Rachel": {
                     "voice_id": "21m00Tcm4TlvDq8ikWAM", 
@@ -108,69 +108,36 @@ if 'provider_voice_configs' not in st.session_state:
                     "voice_id": "EXAVITQu4vr4xnSDxMaL",
                     "description": "Young, energetic female - clear pronunciation",
                     "model": "eleven_flash_v2_5"
-                },
-                "Josh": {
-                    "voice_id": "TxGEqnHWrfWFTfGW9XjX", 
-                    "description": "Friendly male - consistent across languages",
-                    "model": "eleven_flash_v2_5"
-                },
-                "Antoni": {
-                    "voice_id": "ErXwobaYiN019PkySvjV",
-                    "description": "Warm, well-educated male - accent-free switching",
-                    "model": "eleven_flash_v2_5"
-                },
-                "Elli": {
-                    "voice_id": "MF3mGyEYCl7XYWbV9V6O",
-                    "description": "Emotional, expressive female - natural delivery", 
-                    "model": "eleven_flash_v2_5"
                 }
             },
             "selected": "Rachel"
         },
-        "openai": {
+        "elevenlabs_multilingual": {
             "speakers": {
-                "Nova": {
-                    "voice_id": "nova",
-                    "description": "Most versatile - excellent for multilingual content",
-                    "model": "tts-1-hd"
+                "Rachel": {
+                    "voice_id": "21m00Tcm4TlvDq8ikWAM", 
+                    "description": "Calm, professional female - multilingual optimized",
+                    "model": "eleven_multilingual_v2"
                 },
-                "Alloy": {
-                    "voice_id": "alloy", 
-                    "description": "Balanced, neutral - great accent control",
-                    "model": "tts-1-hd"
+                "Adam": {
+                    "voice_id": "pNInz6obpgDQGcFmaJgB",
+                    "description": "Deep, authoritative male - multilingual optimized", 
+                    "model": "eleven_multilingual_v2"
                 },
-                "Echo": {
-                    "voice_id": "echo",
-                    "description": "Clear, professional - consistent pronunciation",
-                    "model": "tts-1-hd" 
-                },
-                "Fable": {
-                    "voice_id": "fable",
-                    "description": "Expressive, engaging - natural language switching",
-                    "model": "tts-1-hd"
-                },
-                "Onyx": {
-                    "voice_id": "onyx",
-                    "description": "Deep, authoritative - accent-free delivery",
-                    "model": "tts-1-hd"
-                },
-                "Shimmer": {
-                    "voice_id": "shimmer", 
-                    "description": "Bright, energetic - clear multilingual speech",
-                    "model": "tts-1-hd"
+                "Antoni": {
+                    "voice_id": "ErXwobaYiN019PkySvjV",
+                    "description": "Warm, well-educated male - accent-free switching",
+                    "model": "eleven_multilingual_v2"
                 }
             },
-            "selected": "Nova"
+            "selected": "Rachel"
         }
     }
-
-# Initialize selected speakers per provider
 if 'selected_speakers' not in st.session_state:
     st.session_state.selected_speakers = {
-        "elevenlabs": "Rachel",
-        "openai": "Nova"
+        "elevenlabs_flash": "Rachel",
+        "elevenlabs_multilingual": "Rachel"
     }
-
 # Dynamic voice ID based on selected provider and speaker
 def get_current_voice_id():
     provider = st.session_state.tts_provider
@@ -738,67 +705,42 @@ async def generate_llm_response(prompt, system_prompt=None, api_key=None):
         response_language = st.session_state.response_language
         
         if response_language == "both":
-            system_content = """🎓 PROFESSIONAL ENGLISH TUTORING SYSTEM
+            system_content = """🎯 WORD-LEVEL TAGGING ENFORCER
 
-            You are Dr. EnglishMaster, a certified English instructor for Urdu speakers.
+            ⚠️ ABSOLUTE RULE: EVERY ENGLISH WORD GETS [en] TAG, EVERY URDU GETS [ur]
 
-            🎯 CORE TEACHING RESPONSIBILITIES:
-            - Grammar instruction and explanations
-            - Vocabulary building with context
-            - Pronunciation guidance
-            - Cultural context of English usage
-            - Error correction with explanations
-            - Conversation practice scenarios
-            - Writing and speaking skill development
+            ❌ NEVER DO THIS:
+            "[ur] English mein water kehte hain"
+            "[en] We call it paani in Urdu"
 
-            🚨 CRITICAL TAGGING PROTOCOL (ZERO TOLERANCE):
+            ✅ ALWAYS DO THIS:
+            "[ur] English mein [en] water [ur] kehte hain"
+            "[ur] Paani ko [en] English [ur] mein [en] water [ur] kehte hain"
 
-            RULE 1: PERFECT LANGUAGE BOUNDARY ISOLATION
-            ✅ CORRECT: "[ur] English mein [en] water [ur] ko [en] water [ur] kehte hain"
-            ❌ WRONG: "[en] Water means paani in Urdu"
+            🔥 MANDATORY PATTERNS:
 
-            RULE 2: INDIVIDUAL WORD TAGGING FOR VOCABULARY
-            ✅ CORRECT: "[ur] Basic words: [en] house [ur] (ghar), [en] car [ur] (gaari), [en] book [ur] (kitab)"
-            ❌ WRONG: "[en] Basic words: house, car, book [ur] ye sab Urdu mein..."
+            VOCABULARY TEACHING:
+            "[ur] {URDU_WORD} ko [en] English [ur] mein [en] {ENGLISH_WORD} [ur] kehte hain"
 
-            RULE 3: ENGLISH EXPLANATIONS WHEN PEDAGOGICALLY NECESSARY
-            ✅ CORRECT: "[ur] Present tense ka structure hai: [en] Subject + Verb + Object [ur]. Misal: [en] I eat food [ur] yani [en] I [ur] (main), [en] eat [ur] (khata hun), [en] food [ur] (khana)"
+            LISTS:
+            "[ur] 1. [en] House [ur] - ghar
+            [ur] 2. [en] Car [ur] - gaari  
+            [ur] 3. [en] Book [ur] - kitab"
 
-            RULE 4: GRAMMAR EXPLANATIONS WITH MIXED TAGGING
-            ✅ CORRECT: "[ur] Past tense banane ke liye [en] verb [ur] ke saath [en] -ed [ur] lagaate hain. [en] Walk [ur] se [en] walked [ur] banta hai"
+            GRAMMAR:
+            "[ur] Past tense banane ke liye [en] verb [ur] ke saath [en] -ed [ur] lagaate hain"
 
-            🎓 PROFESSIONAL TEACHING TEMPLATES:
+            🚨 ENFORCEMENT RULES:
+            1. NO English word without [en] tag
+            2. NO Urdu word without [ur] tag  
+            3. Switch tags for EVERY word
+            4. Maximum 3 words per tag
 
-            VOCABULARY INSTRUCTION:
-            "[ur] Bahut acha sawal! [en] {ENGLISH_WORD} [ur] ka matlab {URDU_MEANING} hai. Iska istemal: [en] {EXAMPLE_SENTENCE} [ur]. Samjhe?"
+            EXAMPLE PERFECT RESPONSE:
+            User: "Water English mein kya kehte hain?"
+            You: "[ur] Paani ko [en] English [ur] mein [en] water [ur] kehte hain. [ur] Aur [en] basic words [ur]: [en] house [ur] (ghar), [en] book [ur] (kitab)."
 
-            GRAMMAR EXPLANATION:
-            "[ur] {GRAMMAR_CONCEPT} ka rule ye hai: [en] {ENGLISH_RULE} [ur]. Misal dekhen: [en] {EXAMPLE} [ur]. Aap try kariye!"
-
-            ERROR CORRECTION:
-            "[ur] Bilkul qareeb! Lekin [en] {INCORRECT_FORM} [ur] ki jagah [en] {CORRECT_FORM} [ur] use kariye. Wajah: {REASON}. Sahi sentence: [en] {CORRECTED_SENTENCE} [ur]"
-
-            CONVERSATION PRACTICE:
-            "[ur] Is situation mein aap keh sakte hain: [en] {ENGLISH_PHRASE} [ur]. Pronunciation: {PHONETIC}. Iska matlab: {MEANING}. Practice kariye!"
-
-            🔧 ADVANCED PEDAGOGICAL FEATURES:
-            - Use Urdu for complex explanations
-            - Use English for examples and practice
-            - Provide cultural context
-            - Give pronunciation tips
-            - Offer practice exercises
-            - Build progressive difficulty
-            - Encourage natural usage
-
-            🎯 QUALITY ASSURANCE:
-            ✓ Every English word individually tagged
-            ✓ Urdu explanations for clarity  
-            ✓ No accent bleeding between languages
-            ✓ Professional teaching methodology
-            ✓ Student engagement and encouragement
-
-            REMEMBER: You're training future English speakers. Be thorough, encouraging, and maintain perfect linguistic separation for accent-free learning."""
-
+            BEGIN WITH PERFECT WORD-LEVEL TAGGING."""
         elif response_language == "ur":
             system_content = "You are a helpful Urdu assistant. ALWAYS respond ONLY in Urdu with [ur] markers."
         elif response_language == "en":
@@ -1102,13 +1044,11 @@ async def generate_speech_openai(text, language_code=None):
         return None, time.time() - start_time
 
 async def generate_speech_unified(text, language_code=None):
-    """Unified speech generation using selected provider"""
+    """Unified speech generation using selected ElevenLabs model"""
     provider = st.session_state.tts_provider
     
-    if provider == "elevenlabs":
+    if provider in ["elevenlabs_flash", "elevenlabs_multilingual"]:
         return generate_speech(text, language_code)
-    elif provider == "openai":
-        return await generate_speech_openai(text, language_code)
     else:
         return generate_speech(text, language_code)  # Fallback
 
@@ -1268,6 +1208,7 @@ async def process_voice_input_pronunciation_enhanced(audio_file):
             return user_input, None, transcription.get("latency", 0), 0, 0
         
         response_text = llm_result["response"]
+        st.session_state.last_llm_response = response_text 
         st.session_state.message_queue.put(f"💬 Generated: {response_text}")
         
         # Step 5: High-Quality Voice Synthesis
@@ -1319,6 +1260,7 @@ async def process_text_input(text):
         return None, llm_result.get("latency", 0), 0
     
     response_text = llm_result["response"]
+    st.session_state.last_llm_response = response_text
     st.session_state.message_queue.put(f"Generated response: {response_text}")
     
     # Step 2: Text-to-Speech with accent isolation
@@ -1388,15 +1330,25 @@ def calculate_average_latency(latency_list, recent_count=5):
     return sum(recent) / len(recent)
 
 def update_status():
-    """Update status display from message queue"""
-    status_text = ""
+    """Update status display from message queue - FIXED"""
+    if 'status_messages' not in st.session_state:
+        st.session_state.status_messages = []
+    
+    # Get all new messages
     while True:
         try:
             message = st.session_state.message_queue.get_nowait()
-            status_text += message + "\n"
-            st.session_state.status_area.text_area("Processing Log", value=status_text, height=200)
+            st.session_state.status_messages.append(f"{datetime.now().strftime('%H:%M:%S')} - {message}")
+            # Keep only last 10 messages
+            if len(st.session_state.status_messages) > 10:
+                st.session_state.status_messages.pop(0)
         except queue.Empty:
             break
+    
+    # Display messages
+    if st.session_state.status_messages:
+        status_text = "\n".join(st.session_state.status_messages)
+        st.text_area("Processing Log", value=status_text, height=200, key="status_display")
 
 def ensure_single_voice_consistency():
     """Ensure all languages use the same voice ID"""
@@ -1544,67 +1496,20 @@ def main():
         
         # TTS Provider Selection
         st.subheader("🎵 TTS Provider")
-        
+
         tts_provider = st.selectbox(
-            "Choose TTS Provider",
-            options=["elevenlabs", "openai"],
+            "Choose ElevenLabs Model",
+            options=["elevenlabs_flash", "elevenlabs_multilingual"],
             format_func=lambda x: {
-                "elevenlabs": "ElevenLabs (Flash v2.5)",
-                "openai": "OpenAI TTS"
+                "elevenlabs_flash": "ElevenLabs Flash v2.5 (Fastest)",
+                "elevenlabs_multilingual": "ElevenLabs Multilingual v2 (Best Quality)"
             }[x],
-            index=["elevenlabs", "openai"].index(st.session_state.tts_provider) if st.session_state.tts_provider in ["elevenlabs", "openai"] else 0
+            index=["elevenlabs_flash", "elevenlabs_multilingual"].index(st.session_state.tts_provider) if st.session_state.tts_provider in ["elevenlabs_flash", "elevenlabs_multilingual"] else 0
         )
-        
+
         if tts_provider != st.session_state.tts_provider:
             st.session_state.tts_provider = tts_provider
             st.success(f"TTS Provider changed to: {tts_provider}")
-        
-        # Provider-specific configuration
-        if tts_provider == "openai":
-            st.info("✅ OpenAI TTS uses your existing OpenAI API key")
-        
-        elif tts_provider == "elevenlabs":
-            st.info("✅ ElevenLabs uses your existing ElevenLabs API key")
-            
-        # Speaker Selection per Provider
-        if tts_provider in st.session_state.provider_voice_configs:
-            st.write(f"**{tts_provider.title()} Speakers:**")
-            
-            speakers = st.session_state.provider_voice_configs[tts_provider]["speakers"]
-            current_speaker = st.session_state.selected_speakers.get(tts_provider, list(speakers.keys())[0])
-            
-            # Create speaker options with descriptions
-            speaker_options = {}
-            for name, config in speakers.items():
-                description = config.get("description", "Professional voice")
-                speaker_options[f"{name} - {description}"] = name
-            
-            selected_speaker_display = st.selectbox(
-                f"Choose {tts_provider.title()} Speaker",
-                options=list(speaker_options.keys()),
-                index=list(speaker_options.values()).index(current_speaker) if current_speaker in speaker_options.values() else 0,
-                key=f"{tts_provider}_speaker_select"
-            )
-            
-            selected_speaker = speaker_options[selected_speaker_display]
-            
-            if selected_speaker != st.session_state.selected_speakers.get(tts_provider):
-                st.session_state.selected_speakers[tts_provider] = selected_speaker
-                
-                # Update ElevenLabs voice ID if ElevenLabs is selected
-                if tts_provider == "elevenlabs":
-                    new_voice_id = speakers[selected_speaker]["voice_id"]
-                    st.session_state.elevenlabs_voice_id = new_voice_id
-                
-                st.success(f"✅ Speaker changed to: {selected_speaker}")
-                
-            # Show speaker details
-            speaker_config = speakers[selected_speaker]
-            st.info(f"""
-            **{selected_speaker}**: {speaker_config['description']}
-            - Voice ID: {speaker_config['voice_id'][:12]}...
-            - Model: {speaker_config['model']}
-            """)
 
         # Voice Testing Section
         st.write("**🎵 Test Current Speaker:**")
@@ -1825,6 +1730,14 @@ def main():
                     height=150,
                     disabled=True
                 )
+        elif 'last_llm_response' in st.session_state and st.session_state.last_llm_response:
+            st.subheader("AI Tutor Response")
+            st.text_area(
+                "Response text", 
+                value=st.session_state.last_llm_response,
+                height=150,
+                disabled=True
+            )
         
         # Generated audio
         if 'last_audio_output' in st.session_state and st.session_state.last_audio_output:
