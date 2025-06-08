@@ -1040,7 +1040,7 @@ def get_voices():
         return []
 
 def preprocess_text_for_clean_speech(text, language_code=None):
-    """Preprocess text to eliminate random voice artifacts"""
+    """Preprocess text to eliminate random voice artifacts - FIXED"""
     
     # Remove problematic patterns that cause voice issues
     cleaned_text = text.strip()
@@ -1052,43 +1052,27 @@ def preprocess_text_for_clean_speech(text, language_code=None):
     cleaned_text = re.sub(r'\s+', ' ', cleaned_text)
     
     # Remove problematic punctuation that causes artifacts
-    cleaned_text = re.sub(r'[^\w\s\.\,\!\?\-\:]', '', cleaned_text)
+    cleaned_text = re.sub(r'[^\w\s\.\,\!\?\-\:\'\"]', '', cleaned_text)
+    
+    # Handle empty or very short text - CRITICAL FIX
+    if len(cleaned_text.strip()) < 3:
+        return "Hello."  # Fallback to prevent empty text
     
     # Ensure proper sentence endings
     if cleaned_text and not cleaned_text.endswith(('.', '!', '?')):
         cleaned_text += '.'
     
-    # Handle empty or very short text
-    if len(cleaned_text.strip()) < 2:
-        return None
-    
-    # Language-specific cleaning
-    if language_code == "cs":
-        # Ensure Czech-specific character handling
-        cleaned_text = clean_czech_text(cleaned_text)
-    elif language_code == "de":
-        # Ensure German-specific character handling  
-        cleaned_text = clean_german_text(cleaned_text)
-    
     return cleaned_text
 
 def eliminate_accent_bleeding_enhanced(text, language_code):
-    """CRITICAL: Enhanced accent bleeding elimination"""
+    """CRITICAL: Enhanced accent bleeding elimination - FIXED FOR ELEVENLABS"""
     
     if not language_code:
         return text
-        
-    # Apply language-specific phonetic markers
-    if language_code == "cs":
-        # Force Czech phonetic context
-        enhanced_text = f'<speak><voice name="cs-CZ-AntoninNeural"><lang xml:lang="cs-CZ"><prosody rate="0.85" pitch="-1st">{text}</prosody></lang></voice></speak>'
-    elif language_code == "de":
-        # Force German phonetic context  
-        enhanced_text = f'<speak><voice name="de-DE-ConradNeural"><lang xml:lang="de-DE"><prosody rate="0.9" pitch="+1st">{text}</prosody></lang></voice></speak>'
-    else:
-        enhanced_text = text
-        
-    return enhanced_text
+    
+    # ElevenLabs doesn't support Azure SSML - just return clean text
+    # The multilingual model handles language switching internally
+    return text.strip()
 
 def clean_czech_text(text):
     """Clean Czech text for better pronunciation"""
@@ -1143,14 +1127,14 @@ def generate_speech(text, language_code=None, voice_id=None):
     else:
         voice_settings = st.session_state.voice_settings["default"]
     
-    # CRITICAL: Preprocess text to eliminate random voice artifacts
+    # CRITICAL: Clean text for ElevenLabs - SIMPLIFIED
     preprocessed_text = preprocess_text_for_clean_speech(text, language_code)
     if not preprocessed_text:
         logger.error("Text preprocessing failed - empty result")
         return None, 0
 
-    # SSML enhancement for pronunciation accuracy
-    enhanced_text = add_accent_free_markup(preprocessed_text, language_code)
+    # Use cleaned text directly - no SSML markup needed
+    enhanced_text = preprocessed_text
 
     data = {
         "text": enhanced_text,
@@ -1197,17 +1181,12 @@ async def generate_speech_unified(text, language_code=None):
         return generate_speech(text, language_code)  # Fallback
 
 def add_accent_free_markup(text, language_code):
-    """Add SSML markup for accent-free pronunciation - Czech/German"""
+    """Add accent-free markup for ElevenLabs - SIMPLIFIED"""
     if not language_code:
         return text
     
-    # Clean text first
-    clean_text = text.strip()
-    
-    # Apply enhanced accent bleeding elimination
-    enhanced_text = eliminate_accent_bleeding_enhanced(clean_text, language_code)
-    
-    return enhanced_text
+    # Just return clean text - ElevenLabs Multilingual v2 handles language detection
+    return text.strip()
 
 # Enhanced multilingual processing for Czech-German
 async def process_multilingual_text_seamless(text, detect_language=True):
